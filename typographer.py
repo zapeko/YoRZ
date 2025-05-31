@@ -255,7 +255,7 @@ def remove_all_empty_lines(lines):
     return new_lines, total_removed
 
 def main():
-    input_file = "pog.txt"
+    input_file = "book.txt"
     base, ext = os.path.splitext(input_file)
     output_file = f"{base}_fixed{ext}"
 
