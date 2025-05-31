@@ -456,17 +456,17 @@ p {{text-indent: 2em;  margin-bottom: 0em; margin-top: 0em; font-size : 110%; fo
         f.write("\n</body>\n</html>")
 
 if __name__ == "__main__":
-    input_file = "pog.txt"
+    input_file = "book.txt"
     output_html_file = os.path.splitext(input_file)[0] + '_yo.html'
 
     try:
         replace_expressions(
             input_file,
-            r"C:\Users\energ\Dropbox\Fix and Yo\Словари\green.dic",
-            r"C:\Users\energ\Dropbox\Fix and Yo\Словари\blue.dic",
+            "green.dic",
+            "blue.dic",
             output_html_file,
-            r"C:\Users\energ\Dropbox\Fix and Yo\Словари\yellow.dic",
-            r"C:\Users\energ\Dropbox\Fix and Yo\Словари\orange.dic"
+            "yellow.dic",
+            "orange.dic"
         )
         print(f"{Fore.GREEN}Текст успешно обработан. Результат сохранён в: {output_html_file}{Style.RESET_ALL}")
     except Exception as e:
