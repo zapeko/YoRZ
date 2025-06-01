@@ -40,7 +40,7 @@ python yellow_dic_forming.py
 ```
 После обработки формируется обновлённый (перезаписывается старый) словарь <code>yellow.dic</code> из следующих файлов:
 - <code>yellow_root.txt</code> - список корней
-- <code>yellow_base.txt</code> - база слов
+- <code>yellow_base.txt</code> - база слов и словоформ
 - <code>yellow_add.txt</code> - дополнения
 ### Шаг 5. Ёфикация
 Запустить выполнение скрипта <code>YoRZ.py</code>
