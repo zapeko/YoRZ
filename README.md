@@ -55,6 +55,7 @@ python YoRZ.py
 python typographer.py book.txt
 ```
 После обработки текста создаётся файл <code>book_fixed.txt</code> (проверить и пересохранить в <code>book.txt</code>).
+
 Справка:
 ```python
 python typographer.py --help
