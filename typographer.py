@@ -76,6 +76,9 @@ RE_NUM_WORD = re.compile(r'(\d)([A-Za-zА-Яа-я])', flags=re.IGNORECASE)
 # Шаблоны цифра.цифра (для защиты от изменений пробелов)
 RE_DIGIT_DOT_DIGIT = re.compile(r'\d[.,:]\d')
 
+# Шаблон для инициалов и сокращений (В.В., т.д.)
+RE_LETTER_DOT_LETTER = re.compile(r'[A-Za-zА-Яа-я]\.[A-Za-zА-Яа-я]')
+
 # Пунктуация
 RE_MULTIPLE_DOTS = re.compile(r'\.{3,}')
 RE_MULTIPLE_ELLIPSIS = re.compile(r'…{2,}')
@@ -152,12 +155,14 @@ def handle_dashes_and_hyphens(line: str, stats: ProcessStats, keep_leading_dashe
 def handle_spacing(line: str, stats: ProcessStats) -> str:
     """Устраняет различные проблемы с пробелами."""
     protected = {}
-    def protect(match):
+    def protect(match, key_prefix):
         seq = match.group(0)
-        key = f"__DIGIT_DOT_DIGIT_{len(protected)}__"
+        key = f"__{key_prefix}_{len(protected)}__"
         protected[key] = seq
         return key
-    line = RE_DIGIT_DOT_DIGIT.sub(protect, line)
+
+    line = RE_LETTER_DOT_LETTER.sub(lambda m: protect(m, "LDL"), line)
+    line = RE_DIGIT_DOT_DIGIT.sub(lambda m: protect(m, "DDD"), line)
 
     line, count = RE_NUM_DASH_NUM_WORD.subn(r'\1\2\3 \4', line); stats.number_word_spaces_added += count
     line, count = RE_WORD_NUM.subn(r'\1 \2', line); stats.number_word_spaces_added += count
