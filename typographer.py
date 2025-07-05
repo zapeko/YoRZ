@@ -17,6 +17,7 @@ class ProcessStats:
     hyphens_added_after_numbers: int = 0
     punctuation_errors_fixed: int = 0
     empty_lines_removed: int = 0
+    lines_merged: int = 0
 
     def __add__(self, other):
         if not isinstance(other, ProcessStats):
@@ -74,10 +75,10 @@ RE_WORD_NUM = re.compile(r'([A-Za-zА-Яа-я])(\d)', flags=re.IGNORECASE)
 RE_NUM_WORD = re.compile(r'(\d)([A-Za-zА-Яа-я])', flags=re.IGNORECASE)
 
 # Шаблоны цифра.цифра (для защиты от изменений пробелов)
-RE_DIGIT_DOT_DIGIT = re.compile(r'\d[.,:]\d')
+RE_DIGIT_DOT_DIGIT = re.compile(r'\d[.:]\d')
 
 # Шаблон для инициалов и сокращений (В.В., т.д.)
-RE_LETTER_DOT_LETTER = re.compile(r'[A-Za-zА-Яа-я]\.[A-Za-zА-Яа-я]')
+RE_LETTER_DOT_LETTER = re.compile(r'([A-ZА-Я]\.[A-ZА-Я]|[а-я]\.[а-я])')
 
 # Пунктуация
 RE_MULTIPLE_DOTS = re.compile(r'\.{3,}')
@@ -258,6 +259,40 @@ def remove_empty_lines(lines: list[str], remove_all: bool = False) -> tuple[list
 
     return new_lines, len(lines) - len(new_lines)
 
+def merge_lines(lines: list[str]) -> tuple[list[str], int]:
+    """
+    Объединяет строки, если текущая строка не заканчивается знаком препинания,
+    а следующая начинается с маленькой буквы.
+    """
+    if not lines:
+        return [], 0
+
+    merged_lines = [lines[0]]
+    merge_count = 0
+    i = 1
+    while i < len(lines):
+        # Аккуратно работаем с пробелами на концах строк для проверки условий
+        prev_line_for_check = merged_lines[-1].rstrip()
+        current_line_for_check = lines[i].lstrip()
+
+        if prev_line_for_check and current_line_for_check and \
+           prev_line_for_check[-1] not in ".?!…":
+
+            first_char = current_line_for_check[0]
+            # Условие слияния: следующая строка начинается с маленькой буквы
+            # и не является прямой речью или элементом списка.
+            if first_char.islower() and first_char.isalpha() and not current_line_for_check.startswith(('-', '–', '—')):
+                # Выполняем слияние, нормализуя пробел на стыке
+                merged_lines[-1] = merged_lines[-1].rstrip() + ' ' + lines[i].lstrip()
+                merge_count += 1
+            else:
+                merged_lines.append(lines[i])
+        else:
+            merged_lines.append(lines[i])
+        i += 1
+
+    return merged_lines, merge_count
+
 def main():
     """Основная функция для запуска скрипта."""
     init(autoreset=True)
@@ -313,15 +348,20 @@ def main():
 
     lines = content.splitlines()
     total_stats = ProcessStats()
-    processed_lines = []
 
+    # Сначала удаляем пустые строки и объединяем, работая с сырыми строками
+    lines, empty_removed = remove_empty_lines(lines, args.remove_all_empty)
+    total_stats.empty_lines_removed = empty_removed
+
+    lines, merged_count = merge_lines(lines)
+    total_stats.lines_merged = merged_count
+
+    # Теперь обрабатываем каждую из потенциально объединенных строк
+    processed_lines = []
     for line in lines:
         processed_line, line_stats = process_line(line, args.keep_leading_dashes)
         processed_lines.append(processed_line)
         total_stats += line_stats
-
-    processed_lines, empty_removed = remove_empty_lines(processed_lines, args.remove_all_empty)
-    total_stats.empty_lines_removed = empty_removed
 
     try:
         with open(output_file, 'w', encoding='utf-8') as f_out:
@@ -345,6 +385,7 @@ def main():
         print(f"{Fore.YELLOW}Удалено лишних пробелов: {total_stats.spaces_removed}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Исправлено ошибок пунктуации: {total_stats.punctuation_errors_fixed}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Удалено пустых строк: {total_stats.empty_lines_removed}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Объединено строк: {total_stats.lines_merged}{Style.RESET_ALL}")
         print(f"{Fore.GREEN}{'#'*78}{Style.RESET_ALL}\n")
 
 
