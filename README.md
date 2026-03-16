@@ -71,3 +71,5 @@ python main.py
 - Windows 11
 - Intel i7-7700k
 - 16 gb ОЗУ
+
+##  <img src="https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExMDZsbm1ndzJka3pvMHQyZTFwbjdsMmVnbWh1ajN2cTZrdWNwajc4eiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/ya4eevXU490Iw/giphy.gif" width="60"> Обсуждение: t.me/yorz_2
