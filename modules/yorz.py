@@ -2,7 +2,30 @@ import re
 import os
 import zipfile
 import sys
+import unicodedata
 from colorama import Fore, Style
+
+def remove_diacritics(text):
+    nfd_text = unicodedata.normalize("NFD", text)
+    result_chars = []
+    i = 0
+    while i < len(nfd_text):
+        ch = nfd_text[i]
+        if unicodedata.category(ch) != "Mn":
+            cluster = [ch]
+            i += 1
+            while i < len(nfd_text) and unicodedata.category(nfd_text[i]) == "Mn":
+                cluster.append(nfd_text[i])
+                i += 1
+            if ch.lower() == "е" and "\u0308" in cluster[1:]:
+                result_chars.extend(cluster)
+            elif ch.lower() == "и" and "\u0306" in cluster[1:]:
+                result_chars.extend(cluster)
+            else:
+                result_chars.append(ch)
+        else:
+            i += 1
+    return unicodedata.normalize("NFC", "".join(result_chars))
 
 def load_yo_dict(file_path):
     yo_dict = {}
@@ -21,12 +44,12 @@ def load_yo_dict(file_path):
             for segment in re.split(r'(\\w[\*\+])', key):
                 if segment in (r'\w*', r'\w+'):
                     quant = '*' if segment == r'\w*' else '+'
-                    pattern_parts.append(f'(\\w{quant})')
+                    pattern_parts.append(f'([\\w\\u0300-\\u036F]{quant})')
                     wildcard_groups.append(current_group)
                     current_group += 1
                 else:
                     pattern_parts.append(re.escape(segment))
-            pattern_str = r'\b' + ''.join(pattern_parts) + r'\b'
+            pattern_str = r'(?<![\w\u0300-\u036F])' + ''.join(pattern_parts) + r'(?![\w\u0300-\u036F])'
 
             parts_repl = re.split(r'(\\w[\*\+])', replace)
             for i in range(1, len(parts_repl), 2):
@@ -74,7 +97,7 @@ def replace_yo_in_text(text, yo_dict):
             if not parts[i].strip(): continue
             parts[i] = data['pattern'].sub(
                 lambda m: (
-                    m.group() if any(exc.search(m.group()) for exc in data['exceptions_compiled'])
+                    m.group() if any(exc.search(remove_diacritics(m.group())) for exc in data['exceptions_compiled'])
                     else f'<yorz class="highlight-yellow">{preserve_case(m, m.expand(data["replace"]))}</yorz>'
                 ), parts[i]
             )
@@ -98,12 +121,12 @@ def load_yo_variants(file_path):
             for segment in re.split(r'(\\w[\*\+])', original):
                 if segment in (r'\w*', r'\w+'):
                     quant = '*' if segment == r'\w*' else '+'
-                    pattern_parts.append(f'(\\w{quant})')
+                    pattern_parts.append(f'([\\w\\u0300-\\u036F]{quant})')
                     wildcard_groups.append(current_group)
                     current_group += 1
                 else:
                     pattern_parts.append(re.escape(segment))
-            pattern_str = r'\b' + ''.join(pattern_parts) + r'\b'
+            pattern_str = r'(?<![\w\u0300-\u036F])' + ''.join(pattern_parts) + r'(?![\w\u0300-\u036F])'
 
             parts_repl = re.split(r'(\\w[\*\+])', replacement)
             for i in range(1, len(parts_repl), 2):
@@ -136,15 +159,15 @@ def process_yo_variants(text, yo_variants, replace_all_choices, global_line_offs
         for part_idx in range(0, len(parts), 2):
             part = parts[part_idx]
             if not part.strip(): continue
-            words = re.split(r'(\W+)', part)
+            words = re.split(r'([^\w\u0300-\u036F]+)', part)
             for word_idx in range(len(words)):
                 word = words[word_idx]
-                if not word or not re.match(r'\w+', word): continue
+                if not word or not re.match(r'[\w\u0300-\u036F]+', word): continue
                 replaced = False
                 for pattern in yo_variants:
                     if pattern in replace_all_choices:
                         match = pattern.fullmatch(word)
-                        if match and not any(exc.search(word) for exc in yo_variants[pattern]['exceptions']):
+                        if match and not any(exc.search(remove_diacritics(word)) for exc in yo_variants[pattern]['exceptions']):
                             new_word = preserve_case(match, replace_all_choices[pattern])
                             words[word_idx] = f'<yorz class="highlight-orange">{new_word}</yorz>'
                             new_parts[part_idx] = ''.join(words)
@@ -155,7 +178,7 @@ def process_yo_variants(text, yo_variants, replace_all_choices, global_line_offs
                 for pattern, data in yo_variants.items():
                     match = pattern.fullmatch(word)
                     if not match: continue
-                    if any(exc.search(word) for exc in data['exceptions']): continue
+                    if any(exc.search(remove_diacritics(word)) for exc in data['exceptions']): continue
 
                     base_word = match.group()
                     yo_word = match.expand(data['replacement'])
@@ -255,12 +278,12 @@ def apply_replacements(text, replacements_dict, span_class):
             for segment in re.split(r'(\\w[\*\+])', original):
                 if segment in (r'\w*', r'\w+'):
                     quant = '*' if segment == r'\w*' else '+'
-                    pattern_parts.append(f'(\\w{quant})')
+                    pattern_parts.append(f'([\\w\\u0300-\\u036F]{quant})')
                     wildcard_groups.append(current_group)
                     current_group += 1
                 else:
                     pattern_parts.append(re.escape(segment))
-            pattern_str = r'\b' + ''.join(pattern_parts) + r'\b'
+            pattern_str = r'(?<![\w\u0300-\u036F])' + ''.join(pattern_parts) + r'(?![\w\u0300-\u036F])'
 
             repl_parts = re.split(r'(\\w[\*\+])', replacement)
             for j in range(1, len(repl_parts), 2):
@@ -278,14 +301,14 @@ def apply_replacements(text, replacements_dict, span_class):
                 if not parts[i].strip(): continue
                 parts[i] = regex.sub(
                     lambda m: (
-                        m.group() if any(exc.search(m.group()) for exc in exceptions)
+                        m.group() if any(exc.search(remove_diacritics(m.group())) for exc in exceptions)
                         else f'<yorz class="{span_class}">{preserve_case(m, m.expand(fixed_replacement))}</yorz>'
                     ), parts[i]
                 )
             text = ''.join(parts)
         else:
             escaped_original = re.escape(original).replace(r'\ ', r'\s+')
-            pattern = r'(?<!\w)' + escaped_original + r'(?!\w)'
+            pattern = r'(?<![\w\u0300-\u036F])' + escaped_original + r'(?![\w\u0300-\u036F])'
             try:
                 regex = re.compile(pattern, re.I)
             except re.error as e:
@@ -296,7 +319,7 @@ def apply_replacements(text, replacements_dict, span_class):
                 if not parts[i].strip(): continue
                 parts[i] = regex.sub(
                     lambda m: (
-                        m.group() if any(exc.search(m.group()) for exc in exceptions)
+                        m.group() if any(exc.search(remove_diacritics(m.group())) for exc in exceptions)
                         else f'<yorz class="{span_class}">{preserve_case(m, replacement)}</yorz>'
                     ), parts[i]
                 )
@@ -371,6 +394,7 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
 
     is_epub = input_file.lower().endswith('.epub')
     is_fb2 = input_file.lower().endswith('.fb2')
+    is_md = input_file.lower().endswith('.md')
 
     if is_epub:
         base_dir = os.path.dirname(os.path.abspath(input_file))
@@ -387,7 +411,8 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
         try:
             with zipfile.ZipFile(input_file, 'r') as zin:
                 with zipfile.ZipFile(tmp_epub, mode, compression=zipfile.ZIP_DEFLATED) as zout:
-                    infolist = zin.infolist()
+                    from modules.epub_utils import get_ordered_infolist
+                    infolist = get_ordered_infolist(zin)
                     for i in range(start_idx, len(infolist)):
                         item = infolist[i]
                         if SHOULD_STOP: raise KeyboardInterrupt()
@@ -459,11 +484,11 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
             print(f"{Fore.RED}Ошибка при работе с EPUB архивом: {e}{Style.RESET_ALL}")
         return
 
-    # Если это обычный текст или fb2
+    # Если это обычный текст, fb2 или md
     base_dir = os.path.dirname(os.path.abspath(input_file))
     base_name = os.path.splitext(os.path.basename(input_file))[0]
     output_html = os.path.join(base_dir, base_name + '_yo.html')
-    output_clean = os.path.join(base_dir, base_name + ('_yo.fb2' if is_fb2 else '_yo.txt'))
+    output_clean = os.path.join(base_dir, base_name + ('_yo.fb2' if is_fb2 else ('_yo.md' if is_md else '_yo.txt')))
 
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
@@ -549,7 +574,10 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
             meta_tag = f'\n<document-info>\n<history>\n{history_entry}\n</history>\n</document-info>\n'
             clean_text = clean_text.replace('</description>', meta_tag + '</description>')
     else:
-        clean_text = clean_text.rstrip() + f'\n\n{today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор)\n'
+        if is_md:
+            clean_text = clean_text.rstrip() + f'\n\n<!-- {today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор) -->\n'
+        else:
+            clean_text = clean_text.rstrip() + f'\n\n{today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор)\n'
 
     with open(output_clean, 'w', encoding='utf-8') as f:
         f.write(clean_text)
