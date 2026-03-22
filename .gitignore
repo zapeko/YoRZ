@@ -1,4 +1,5 @@
 __pycache__/
+__init__.py
 book.txt
 book_fixed.txt
 book_extraction.txt
