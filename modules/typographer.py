@@ -149,7 +149,7 @@ def handle_dashes_and_hyphens(line, stats, keep_leading_dashes):
         
     return line
 
-def handle_spacing(line, stats):
+def handle_spacing(line, stats, is_md=False):
     protected = {}
     def protect(match, key_prefix):
         seq = match.group(0)
@@ -161,12 +161,29 @@ def handle_spacing(line, stats):
     line, count = RE_NUM_DASH_NUM_WORD.subn(r'\1\2\3 \4', line); stats.number_word_spaces_added += count
     line, count = RE_WORD_NUM.subn(r'\1 \2', line); stats.number_word_spaces_added += count
     line, count = RE_NUM_WORD.subn(r'\1 \2', line); stats.number_word_spaces_added += count
+    
     original_len = len(line)
-    line = line.strip()
+    if is_md:
+        leading_spaces_match = re.match(r'^\s+', line)
+        leading_spaces = leading_spaces_match.group(0) if leading_spaces_match else ""
+        # Markdown soft break: two spaces at end of line. Keep them if present.
+        trailing_spaces_match = re.search(r'  +$', line)
+        trailing_spaces = "  " if trailing_spaces_match else ""
+        
+        line = line.strip()
+        line = leading_spaces + line + trailing_spaces
+    else:
+        line = line.strip()
     stats.spaces_removed += original_len - len(line)
+    
     original_len = len(line)
-    line = RE_MULTIPLE_SPACES.sub(' ', line)
+    if not is_md:
+        line = RE_MULTIPLE_SPACES.sub(' ', line)
+    else:
+        # In Markdown, avoid replacing multiple spaces inside lines to not break indented blocks or tables, but at least we can fix basic things or leave it mostly alone.
+        pass
     stats.spaces_removed += original_len - len(line)
+    
     line, count = RE_DASH_NO_SPACE_BEFORE.subn(r' \1', line); stats.spaces_added_around_dash += count
     line, count = RE_DASH_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_around_dash += count
     line, count = RE_PUNCT_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_after_punct += count
@@ -202,12 +219,19 @@ def handle_punctuation(line, stats):
         line = line.replace(key, value)
     return line
 
-def process_line(line, keep_leading_dashes):
+def process_line(line, keep_leading_dashes, is_md=False):
     stats = ProcessStats()
     line = handle_nbsp(line, stats)
+    
+    # In Markdown, prevent changing --- to em dash
+    if is_md:
+        md_hr_match = re.match(r'^([-*_.])\1{2,}\s*$', line)
+        if md_hr_match:
+            return line, stats
+
     line = handle_dashes_and_hyphens(line, stats, keep_leading_dashes)
     line = handle_punctuation(line, stats)
-    line = handle_spacing(line, stats)
+    line = handle_spacing(line, stats, is_md)
     return line, stats
 
 def remove_empty_lines(lines, remove_all=False):
@@ -247,20 +271,51 @@ def merge_lines(lines):
         i += 1
     return merged_lines, merge_count
 
-def process_text_block(text_block, keep_leading_dashes, remove_all_empty, total_stats):
+def process_text_block(text_block, keep_leading_dashes, remove_all_empty, total_stats, is_md=False):
+    protected_elements = {}
+    
+    def prot(m, prefix):
+        key = f"__PROT_{prefix}_{len(protected_elements)}__"
+        protected_elements[key] = m.group(0)
+        return key
+
+    if is_md:
+        # Защита фрагментов кода (многострочных)
+        text_block = re.sub(r'(?s)```.*?```|~~~.*?~~~', lambda m: prot(m, 'CBLK'), text_block)
+        # Защита инлайн-кода
+        text_block = re.sub(r'`[^`]+`', lambda m: prot(m, 'ILC'), text_block)
+        
+    # Защита URL-адресов
+    text_block = re.sub(r'https?://[^\s>\])]+', lambda m: prot(m, 'URL'), text_block)
+    # Защита email-адресов
+    text_block = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', lambda m: prot(m, 'EML'), text_block)
+    # Защита имен файлов, расширений и доменов (gui.py)
+    text_block = re.sub(r'(?i)\b[a-z0-9_-]+\.[a-z0-9_-]+\b', lambda m: prot(m, 'FDOM'), text_block)
+    # Защита HTML кодов цветов (#FF0000)
+    text_block = re.sub(r'#[0-9a-fA-F]{3,8}\b', lambda m: prot(m, 'COL'), text_block)
+
     lines = text_block.splitlines()
     lines, empty_removed = remove_empty_lines(lines, remove_all_empty)
     total_stats.empty_lines_removed += empty_removed
-    lines, merged_count = merge_lines(lines)
-    total_stats.lines_merged += merged_count
+    
+    if not is_md:
+        lines, merged_count = merge_lines(lines)
+        total_stats.lines_merged += merged_count
+        
     processed_lines = []
     for line in lines:
-        processed_line, line_stats = process_line(line, keep_leading_dashes)
+        processed_line, line_stats = process_line(line, keep_leading_dashes, is_md)
         processed_lines.append(processed_line)
         total_stats += line_stats
-    return '\n'.join(processed_lines)
+        
+    result = '\n'.join(processed_lines)
+    
+    for key, val in protected_elements.items():
+        result = result.replace(key, val)
+            
+    return result
 
-def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats):
+def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats, is_md=False):
     tag_pattern = re.compile(r'(<[^>]+>)')
     parts = tag_pattern.split(content)
     for i in range(0, len(parts), 2):
@@ -277,7 +332,7 @@ def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, to
         leading_space = leading_space_match.group(0) if leading_space_match else ""
         trailing_space = trailing_space_match.group(0) if trailing_space_match else ""
         
-        processed = process_text_block(parts[i], keep_leading_dashes, remove_all_empty, total_stats)
+        processed = process_text_block(parts[i], keep_leading_dashes, remove_all_empty, total_stats, is_md)
         
         if processed.strip():
             parts[i] = leading_space + processed.strip() + trailing_space
@@ -289,7 +344,11 @@ def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, to
 def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_leading_dashes=False, quiet=False):
     is_epub = input_file.lower().endswith('.epub')
     is_fb2 = input_file.lower().endswith('.fb2')
+    is_md = input_file.lower().endswith('.md')
     
+    if is_md:
+        keep_leading_dashes = True
+
     if not output_file:
         base_dir = os.path.dirname(os.path.abspath(input_file))
         base_name = os.path.splitext(os.path.basename(input_file))[0]
@@ -297,6 +356,8 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
             output_file = os.path.join(base_dir, base_name + '_fixed.epub')
         elif is_fb2:
             output_file = os.path.join(base_dir, base_name + '_fixed.fb2')
+        elif is_md:
+            output_file = os.path.join(base_dir, base_name + '_fixed.md')
         else:
             output_file = os.path.join(base_dir, base_name + '_fixed.txt')
 
@@ -304,14 +365,15 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
 
     if is_epub:
         import zipfile
+        from modules.epub_utils import get_ordered_infolist
         try:
             with zipfile.ZipFile(input_file, 'r') as zin:
                 with zipfile.ZipFile(output_file, 'w', compression=zipfile.ZIP_DEFLATED) as zout:
-                    for item in zin.infolist():
+                    for item in get_ordered_infolist(zin):
                         content = zin.read(item.filename)
                         if item.filename.lower().endswith(('.html', '.xhtml', '.htm')):
                             try:
-                                text = content.decode('utf-8')
+                                text = content.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
                                 processed = process_content_with_tags(text, keep_leading_dashes, remove_all_empty, total_stats)
                                 zout.writestr(item, processed.encode('utf-8'))
                             except Exception as e:
@@ -329,17 +391,17 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
             print(f"{Fore.RED}Ошибка чтения {input_file}: {e}{Style.RESET_ALL}")
             return
 
-        try: content = raw_data.decode('utf-8')
+        try: content = raw_data.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
         except UnicodeDecodeError:
-            try: content = raw_data.decode('cp1251')
+            try: content = raw_data.decode('cp1251').replace('\r\n', '\n').replace('\r', '\n')
             except UnicodeDecodeError:
                 print(f"{Fore.RED}Не удалось декодировать файл. Нужен UTF-8 или CP1251.{Style.RESET_ALL}")
                 return
 
         if is_fb2:
-            processed = process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats)
+            processed = process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats, is_md)
         else:
-            processed = process_text_block(content, keep_leading_dashes, remove_all_empty, total_stats)
+            processed = process_text_block(content, keep_leading_dashes, remove_all_empty, total_stats, is_md)
 
         try:
             with open(output_file, 'w', encoding='utf-8') as f_out:
