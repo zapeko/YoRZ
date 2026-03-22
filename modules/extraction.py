@@ -15,9 +15,9 @@ def remove_diacritics(text):
             while i < len(nfd_text) and unicodedata.category(nfd_text[i]) == "Mn":
                 cluster.append(nfd_text[i])
                 i += 1
-            if ch == "е" and "\u0308" in cluster[1:]:
+            if ch.lower() == "е" and "\u0308" in cluster[1:]:
                 result_chars.extend(cluster)
-            elif ch == "и" and "\u0306" in cluster[1:]:
+            elif ch.lower() == "и" and "\u0306" in cluster[1:]:
                 result_chars.extend(cluster)
             else:
                 result_chars.append(ch)
@@ -71,10 +71,11 @@ def run(input_filename="book.txt"):
     text = ""
     if ext == 'epub':
         import zipfile
+        from modules.epub_utils import get_ordered_infolist
         text_blocks = []
         try:
             with zipfile.ZipFile(input_filename, 'r') as zin:
-                for item in zin.infolist():
+                for item in get_ordered_infolist(zin):
                     if item.filename.lower().endswith(('.html', '.xhtml', '.htm')):
                         content = zin.read(item.filename).decode('utf-8', errors='ignore')
                         text_blocks.append(re.sub(r'<[^>]+>', ' ', content))
