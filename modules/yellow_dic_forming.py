@@ -44,19 +44,27 @@ def expand_parentheses(match):
             new_tokens.append(token)
     return "(" + ":".join(new_tokens) + ")"
 
+from . import paths
+
 def run():
     missing_files = []
-    for f in ["yellow_root.txt", "yellow_base.txt", "yellow_add.txt"]:
+    files = {
+        "root": paths.get_path("dictionaries/yellow_root.txt"),
+        "base": paths.get_path("dictionaries/yellow_base.txt"),
+        "add": paths.get_path("dictionaries/yellow_add.txt"),
+        "dic": paths.get_path("dictionaries/yellow.dic")
+    }
+    for f in [files["root"], files["base"], files["add"]]:
         if not os.path.exists(f): missing_files.append(f)
     if missing_files:
         print(f"{Fore.RED}Отсутствуют файлы: {', '.join(missing_files)}{Style.RESET_ALL}")
         return
 
-    with open("yellow_root.txt", "r", encoding="utf-8") as f:
+    with open(files["root"], "r", encoding="utf-8") as f:
         yellow_root = [line.strip() for line in f if line.strip()]
-    with open("yellow_base.txt", "r", encoding="utf-8") as f:
+    with open(files["base"], "r", encoding="utf-8") as f:
         yellow_base = [line.strip() for line in f if line.strip()]
-    with open("yellow_add.txt", "r", encoding="utf-8") as f:
+    with open(files["add"], "r", encoding="utf-8") as f:
         yellow_add = [line.strip() for line in f if line.strip()]
 
     results = []
@@ -87,11 +95,11 @@ def run():
     for line in sorted_results:
         final_results.append(pattern.sub(expand_parentheses, line))
 
-    with open("yellow.dic", "w", encoding="utf-8") as f:
+    with open(files["dic"], "w", encoding="utf-8") as f:
         for line in final_results:
             f.write(line + "\n")
 
-    print(f"{Fore.GREEN}Словарь yellow.dic для скрипта-ёфикатора YoRZ сформирован.{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Словарь {files['dic']} для скрипта-ёфикатора YoRZ сформирован.{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     run()
