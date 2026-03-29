@@ -1,22 +1,33 @@
 import os
 from colorama import Fore, Style
-from modules.extraction import remove_diacritics, load_lines, extract_words, matches_condition, generate_alternatives
+from modules.extraction import remove_diacritics, load_lines, extract_words, matches_condition
+from . import paths
 
-def run(input_filename="yellow_base.txt"):
+def run(input_filename=None):
+    if not input_filename:
+        input_filename = paths.get_path("dictionaries/yellow_base.txt")
+    
     if not os.path.exists(input_filename):
         print(f"{Fore.RED}Файл {input_filename} не найден!{Style.RESET_ALL}")
         return
 
-    with open(input_filename, encoding="utf-8") as f:
-        text = f.read().lower()
-
-    text = remove_diacritics(text)
-
+    # Читаем весь текст файла
     try:
-        raw_roots = load_lines("yellow_root.txt")
-    except FileNotFoundError:
-        print(f"{Fore.RED}Файл yellow_root.txt не найден!{Style.RESET_ALL}")
+        with open(input_filename, "r", encoding="utf-8") as f:
+            content = f.read().lower()
+    except Exception as e:
+        print(f"{Fore.RED}Ошибка при чтении файла {input_filename}: {e}{Style.RESET_ALL}")
         return
+
+    # Удаляем диакритические знаки (кроме нужных нам)
+    content = remove_diacritics(content)
+
+    # Загружаем корни для фильтрации
+    try:
+        raw_roots = load_lines(paths.get_path("dictionaries/yellow_root.txt"))
+    except FileNotFoundError:
+        print(f"{Fore.RED}Файл yellow_root.txt не найден! Пропускаю фильтрацию по корням.{Style.RESET_ALL}")
+        raw_roots = []
 
     roots_tuples = []
     for r in raw_roots:
@@ -24,41 +35,38 @@ def run(input_filename="yellow_base.txt"):
         r_variant = r.replace("ё", "е")
         roots_tuples.append((r, r_variant))
 
-    words = extract_words(text)
+    # Извлекаем только слова (это автоматически удаляет комментарии и заголовки)
+    words = extract_words(content)
 
+    # Фильтруем слова: оставляем только те, что содержат корни (если корни загружены)
     extracted_set = set()
-    for word in words:
-        for r, r_variant in roots_tuples:
-            if matches_condition(word, r, r_variant):
-                extracted_set.add(word)
-                break
-
-    if os.path.exists("zero.txt"):
-        exclude_words = set(load_lines("zero.txt"))
+    if roots_tuples:
+        for word in words:
+            for r, r_variant in roots_tuples:
+                if matches_condition(word, r, r_variant):
+                    extracted_set.add(word)
+                    break
     else:
-        exclude_words = set()
+        # Если корней нет, просто берем все уникальные слова
+        extracted_set = set(words)
 
-    final_words = extracted_set - exclude_words
-
+    # Правильная сортировка (ё идет после е)
     ru_alphabet = "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"
     alphabet_order = {char: idx for idx, char in enumerate(ru_alphabet)}
+    
     def sort_key(word):
         return [alphabet_order.get(ch, 1000) for ch in word]
-    sorted_words = sorted(final_words, key=sort_key)
+    
+    sorted_words = sorted(list(extracted_set), key=sort_key)
 
-    base_dir = os.path.dirname(os.path.abspath(input_filename))
-    base_name, _ = os.path.splitext(os.path.basename(input_filename))
-    output_filename = os.path.join(base_dir, f"{base_name}_sorting.txt")
-
-    with open(output_filename, "w", encoding="utf-8") as f:
-        for word in sorted_words:
-            alts = generate_alternatives(word)
-            if any(alt in exclude_words for alt in alts):
-                f.write(f"{word} (!)\n")
-            else:
+    # Перезаписываем исходный файл
+    try:
+        with open(input_filename, "w", encoding="utf-8") as f:
+            for word in sorted_words:
                 f.write(word + "\n")
-
-    print(f"{Fore.GREEN}Сортировка слов завершена. Результат сохранён в: {output_filename}{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}Сортировка и фильтрация завершены. Файл {os.path.basename(input_filename)} успешно перезаписан.{Style.RESET_ALL}")
+    except Exception as e:
+        print(f"{Fore.RED}Ошибка при записи файла {input_filename}: {e}{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     run()
