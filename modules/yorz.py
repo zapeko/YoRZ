@@ -217,11 +217,12 @@ def process_yo_variants(text, yo_variants, replace_all_choices, global_line_offs
                         if is_gui:
                             labels = [f"1 ({base_word.lower()})", f"2 ({yo_word.lower()})", f"3 ({base_word.lower()} везде)", f"4 ({yo_word.lower()} везде)", "Пропустить (Enter)"]
                             choice_input = builtins.gui_custom_input("", labels).strip()
+                            if globals().get('SHOULD_STOP', False):
+                                raise KeyboardInterrupt()
                         else:
                             choice_input = input("Выберите [1/2/3,4-везде/Enter-пропустить]: ").strip()
                     except KeyboardInterrupt:
-                        print(f"\n{Fore.RED}Программа прервана пользователем.{Style.RESET_ALL}")
-                        sys.exit(0)
+                        raise KeyboardInterrupt()
 
                     new_word = word
                     if choice_input:
@@ -327,9 +328,15 @@ def apply_replacements(text, replacements_dict, span_class):
             
     return text
 
+from . import paths
 SHOULD_STOP = False
 
-def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_regular_file="blue.dic", output_file=None, yo_dict_file="yellow.dic", yo_variant_file="orange.dic"):
+def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_file=None, output_file=None, yo_dict_file=None, yo_variant_file=None):
+    if regular_file is None: regular_file = paths.get_path("dictionaries/green.dic")
+    if yo_no_regular_file is None: yo_no_regular_file = paths.get_path("dictionaries/blue.dic")
+    if yo_dict_file is None: yo_dict_file = paths.get_path("dictionaries/yellow.dic")
+    if yo_variant_file is None: yo_variant_file = paths.get_path("dictionaries/orange.dic")
+
     global SHOULD_STOP
     SHOULD_STOP = False
     import builtins
@@ -476,7 +483,7 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
         except (KeyboardInterrupt, SystemExit):
             session_data['html_contents'] = html_contents
             save_session()
-            print(f"\n{Fore.RED}Программа прервана.{Style.RESET_ALL}")
+            print(f"\n{Fore.YELLOW}Сохранение прогресса...{Style.RESET_ALL}")
             raise
         except Exception as e:
             if os.path.exists(tmp_epub):
@@ -531,7 +538,7 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
         except (KeyboardInterrupt, SystemExit):
             session_data['html_contents'] = html_contents
             save_session()
-            print(f"\n{Fore.RED}Программа прервана.{Style.RESET_ALL}")
+            print(f"\n{Fore.YELLOW}Сохранение прогресса...{Style.RESET_ALL}")
             raise
 
     else:
@@ -552,7 +559,7 @@ def replace_expressions(input_file="book.txt", regular_file="green.dic", yo_no_r
         except (KeyboardInterrupt, SystemExit):
             session_data['html_contents'] = html_contents
             save_session()
-            print(f"\n{Fore.RED}Программа прервана.{Style.RESET_ALL}")
+            print(f"\n{Fore.YELLOW}Сохранение прогресса...{Style.RESET_ALL}")
             raise
 
     full_processed_text = ('' if is_fb2 else '\n').join(html_contents)
