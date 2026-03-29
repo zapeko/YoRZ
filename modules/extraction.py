@@ -2,6 +2,7 @@ import os
 import re
 import unicodedata
 from colorama import Fore, Style
+from . import paths
 
 def remove_diacritics(text):
     nfd_text = unicodedata.normalize("NFD", text)
@@ -26,8 +27,9 @@ def remove_diacritics(text):
     return unicodedata.normalize("NFC", "".join(result_chars))
 
 def load_lines(filename):
+    if not os.path.exists(filename): return []
     with open(filename, encoding="utf-8") as f:
-        return [line.strip() for line in f if line.strip()]
+        return [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
 def extract_words(text):
     return re.findall(r"[а-яё]+", text)
@@ -94,9 +96,9 @@ def run(input_filename="book.txt"):
     text = remove_diacritics(text)
 
     try:
-        raw_roots = load_lines("yellow_root.txt")
+        raw_roots = load_lines(paths.get_path("dictionaries/yellow_root.txt"))
     except FileNotFoundError:
-        print(f"{Fore.RED}Файл yellow_root.txt не найден!{Style.RESET_ALL}")
+        print(f"{Fore.RED}Файл dictionaries/yellow_root.txt не найден!{Style.RESET_ALL}")
         return
 
     roots_tuples = []
@@ -115,19 +117,19 @@ def run(input_filename="book.txt"):
                 break
 
     try:
-        exclude_words = set(load_lines("yellow_base.txt"))
+        exclude_words = set(load_lines(paths.get_path("dictionaries/yellow_base.txt")))
     except FileNotFoundError:
-        print(f"{Fore.RED}Файл yellow_base.txt не найден!{Style.RESET_ALL}")
+        print(f"{Fore.RED}Файл dictionaries/yellow_base.txt не найден!{Style.RESET_ALL}")
         exclude_words = set()
 
     final_words = extracted_set - exclude_words
 
     try:
-        blacklist_words = set(load_lines("blacklist.txt"))
+        blacklist_words = set(load_lines(paths.get_path("dictionaries/blacklist.txt")))
         excluded_count = len(final_words.intersection(blacklist_words))
         final_words -= blacklist_words
         if excluded_count > 0:
-            print(f"{Fore.YELLOW}Применена фильтрация по blacklist.txt. Исключено слов: {excluded_count}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Применена фильтрация по dictionaries/blacklist.txt. Исключено слов: {excluded_count}{Style.RESET_ALL}")
     except FileNotFoundError:
         pass
 
