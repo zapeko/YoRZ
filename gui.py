@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from modules import paths
 
 # Версия программы (обновляйте здесь при выпуске новой версии)
-APP_VERSION = "2.0.44.0"
+APP_VERSION = "2.1.0"
 
 # Быстрая проверка при запуске (только копирование недостающих файлов)
 paths.ensure_user_data_exists()
@@ -40,7 +40,18 @@ DEFAULT_SETTINGS = {
     "console_font_size": 20,
     "highlight_alpha": 20,
     "console_font_family": "Consolas",
-    "console_font_style": "normal"
+    "console_font_style": "normal",
+    "typo_zwnbsp": True,
+    "typo_html_nbsp": True,
+    "typo_nbsp": True,
+    "typo_shy": True,
+    "typo_spaces": True,
+    "typo_letter_digit_spaces": True,
+    "typo_punctuation": True,
+    "typo_dashes": True,
+    "typo_merge_lines": True,
+    "typo_keep_leading_dashes": False,
+    "typo_remove_all_empty": False
 }
 
 def load_settings():
@@ -120,6 +131,47 @@ class StdoutRedirector:
     def flush(self):
         pass
 
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.tooltip_window = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + 25
+        
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        
+        # Используем цвет фона приложения как ключ прозрачности, чтобы убрать ореол
+        is_dark = ctk.get_appearance_mode() == "Dark"
+        app_bg_color = "#242424" if is_dark else "#ebebeb"
+        
+        if sys.platform == "win32":
+            tw.attributes("-transparentcolor", app_bg_color)
+            
+        tw.configure(bg=app_bg_color)
+        
+        # Используем CTkFrame для закругленных углов и толстой рамки
+        # Цвет рамки теперь совпадает с цветом полосы прокрутки/боковой панели
+        frame = ctk.CTkFrame(tw, corner_radius=15, border_width=3, 
+                            border_color=("gray86", "gray17"), 
+                            fg_color=("gray95", "gray15"))
+        frame.pack()
+        
+        label = ctk.CTkLabel(frame, text=self.text, justify='left',
+                           font=("Segoe UI", 16, "bold"), wraplength=450)
+        label.pack(padx=15, pady=10)
+
+    def leave(self, event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
 TOOLS_CONFIG = {
     "guide": {
         "name": "Описание",
@@ -134,11 +186,13 @@ TOOLS_CONFIG = {
 \x1b[33mШаг 1: Подготовка текста (Инструмент: "Типограф")\x1b[0m
 --------------------------------------------------
 Тексты, скачанные из интернета, часто содержат ошибки форматирования: лишние пробелы, неразрывные пробелы вместо обычных, мягкие переносы, дефисы вместо тире. Типограф приводит текст к единому стандарту, что критически важно для корректного срабатывания регулярных выражений при ёфикации.
+
 Результат: Создается файл `_fixed` (например, `book_fixed.txt`), который вы будете использовать на следующих этапах.
 
 \x1b[33mШаг 2: Извлечение слов (Инструмент: "Извлечение слов")\x1b[0m
 --------------------------------------------------------
 Программа просматривает ваш текст и выписывает все слова, содержащие буквы "е" или "ё" и соответствуют определённым параметрам.
+
 Результат: Файл `_extraction.txt` со словами, которых ещё нет в базе yellow_base.txt. Проверьте слова и расставьте букву "ё", где требуется. Слова помеченные (!) требуют особого внимания, так как в базе есть аналоги этих слов с буквой "ё" вместо "е" или с буквой "е" вместо "ё". В таких случаях, если слово неверное в таком написании, то его удалить. Если верное и имеет другой смысл, то оставить. После проверки скопировать все слова и добавить в базу `yellow_base.txt`.
 
 Для удобства, вместе с файлом `_extraction.txt` создаётся файл `for_blacklist.txt`, который содержит слова помеченные (!) в `_extraction.txt`. После проверки добавьте эти слова в `blacklist.txt`, и запустите инструмент "Извлечение слов" ещё раз.
@@ -146,6 +200,7 @@ TOOLS_CONFIG = {
 \x1b[33mШаг 3: Сортировка (Инструмент: "Сортировка базы")\x1b[0m
 ---------------------------------------------------
 Инструмент сортирует слова в файле `yellow_base.txt` по алфавиту и удаляет любые дубликаты. Это ускоряет работу программы и избавляет базу от мусора, который мог появиться на предыдущем шаге при ручном добавлении слов.
+
 Результат: Файл `yellow_base.txt` будет перезаписан отсортированными данными.
 
 Этим же инструментом можно отсортировать слова в `blacklist.txt`.
@@ -154,18 +209,21 @@ TOOLS_CONFIG = {
 --------------------------------------------------------
 Омографы — это слова, которые пишутся одинаково без «ё», но имеют разный смысл (например, "все" и "всё", "мел" и "мёл").
 Программа сканирует `yellow_base.txt` и ищет такие пары слов.
+
 Результат: Новые пары будут автоматически добавлены в словарь `orange.dic` под комментарием "Добавлено автоматически".
 
 \x1b[33mШаг 5: Сборка словаря (Инструмент: "Сборка словаря")\x1b[0m
 ------------------------------------------------------
 Программа не читает базу слов напрямую во время ёфикации, ей нужен готовый, оптимизированный словарь.
 Инструмент собирает финальный рабочий словарь `yellow.dic`, объединяя неизменяемые корни (`yellow_root.txt`), вашу пополняемую базу (`yellow_base.txt`) и дополнительные слова (`yellow_add.txt`).
+
 Результат: Обновляется файл `yellow.dic`. Он содержит готовые регулярные выражения и оптимизирован для быстрой работы.
 
 \x1b[33mШаг 6: Ёфикация текста (Инструмент: "Ёфикация текста")\x1b[0m
 --------------------------------------------------------
 Финальный этап. Непосредственно сама расстановка буквы «ё» в вашем тексте.
 Программа применяет все словари (синий, зелёный, оранжевый и жёлтый) к подготовленному тексту. Для оранжевого словаря программа предложит вам выбрать правильный вариант в консоли.
+
 Результат:
 1. Файл с суффиксом `_yo.html`. Вы можете открыть его в браузере, чтобы визуально (по цветовой подсветке) проверить, какие замены и по каким словарям были сделаны.
 2. Чистый файл с суффиксом `_yo` в формате, соответствующем формату входного файла (.txt, .md, .fb2 или .epub).
@@ -180,7 +238,7 @@ TOOLS_CONFIG = {
     "extraction": {
         "name": "Извлечение слов",
         "needs_file": True,
-        "desc": "Извлекает неизвестные слова из текста для пополнения базы словарей.\n\nВход: Выбранный файл (.txt, .md, .fb2 или .epub)\nРезультат: Файл с суффиксом _extraction.txt. ВНИМАНИЕ: Требуется ручная проверка файла! Расставьте букву «ё» там, где это необходимо, и добавьте слова в базу yellow_base.txt."
+        "desc": "Извлекает неизвестные слова из текста для пополнения базы словарей.\n\nВход: Выбранный файл (.txt, .md, .fb2 или .epub)\nРезультат: Файл с суффиксом _extraction.txt.\n\nВНИМАНИЕ: Требуется ручная проверка файла! Расставьте букву «ё» там, где это необходимо, и добавьте слова в базу yellow_base.txt."
     },
     "sorting": {
         "name": "Сортировка базы",
@@ -263,7 +321,7 @@ class App(ctk.CTk):
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
         self.sidebar_frame.grid_rowconfigure(8, weight=1)
 
-        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text="YoRZ 2.0", font=self.logo_font)
+        self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=f"YoRZ v{APP_VERSION}", font=self.logo_font)
         self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 40))
 
         self.sidebar_btns = {}
@@ -424,9 +482,44 @@ class App(ctk.CTk):
         self.progress_bar.set(0)
 
         # --- Вкладка: Настройки ---
-        self.settings_frame = ctk.CTkFrame(self, corner_radius=10, fg_color="transparent")
+        self.settings_frame = ctk.CTkScrollableFrame(
+            self, corner_radius=10, fg_color="transparent",
+            scrollbar_button_color=sidebar_color,
+            scrollbar_button_hover_color=sidebar_color
+        )
         ctk.CTkLabel(self.settings_frame, text="Настройки", font=self.header_font).pack(anchor="w", pady=(0, 30))
         
+        # Настройки Типографа
+        typo_frame = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
+        typo_frame.pack(anchor="w", pady=(0, 20), fill="x")
+        ctk.CTkLabel(typo_frame, text="Настройки Типографа:", font=self.bold_font).pack(anchor="w", pady=(0, 10))
+
+        grid_frame = ctk.CTkFrame(typo_frame, fg_color="transparent")
+        grid_frame.pack(anchor="w", padx=10)
+
+        typo_settings_map = [
+            ("typo_zwnbsp", "Удалять ZWNBSP (\\ufeff)", "Удаляет невидимый символ нулевой ширины, который часто возникает при копировании текста из интернета и разбивает слова на части.\nПример: Слово[ZWNBSP]слово ➔ Слово слово"),
+            ("typo_html_nbsp", "Заменять HTML-пробелы (&nbsp;)", "Преобразует HTML-сущности неразрывных пробелов в обычные текстовые пробелы, чтобы ёфикатор корректно искал слова.\nПример: Он&nbsp;пошел домой ➔ Он пошел домой"),
+            ("typo_nbsp", "Заменять неразрывные пробелы", "Заменяет юникодные символы неразрывного (\\u00a0) и идеографического пробела (\\u3000) на обычные.\nПример: 20[NBSP]кг ➔ 20 кг"),
+            ("typo_shy", "Удалять мягкие переносы (\\xad)", "Полностью удаляет невидимые символы переноса, которые указывают читалке, где разорвать слово.\nПример: пе-ре-нос (где дефисы невидимые) ➔ перенос"),
+            ("typo_spaces", "Удалять лишние пробелы", "Убирает множественные пробелы подряд, некорректные пробелы перед запятыми/точками и в начале строк.\nПример: Привет   всем , как дела ? ➔ Привет всем, как дела?"),
+            ("typo_letter_digit_spaces", "Разделять буквы и цифры пробелом", "Вставляет пробел между буквами и цифрами согласно правилам типографики. Снимите галочку, чтобы сохранить слитное написание форматов.\nПример: FB2 ➔ FB 2 | 100МГц ➔ 100 МГц"),
+            ("typo_punctuation", "Исправлять пунктуацию", "Интеллектуально нормализует знаки препинания, убирая лишние точки, вопросы и восклицания.\nПример: Что!!!!??? ➔ Что?! | Привет.. ➔ Привет..."),
+            ("typo_dashes", "Заменять дефисы на тире", "Умная замена обычных дефисов (-) на длинное или среднее тире в диалогах, между словами и в цифрах.\nПример: - Привет. ➔ — Привет. | 1990-2000 ➔ 1990–2000"),
+            ("typo_merge_lines", "Склеивать разорванные абзацы", "Объединяет строки, если предыдущая не заканчивается точкой, а следующая начинается с маленькой буквы.\nВНИМАНИЕ: Обязательно отключайте для стихов!"),
+            ("typo_keep_leading_dashes", "Сохранять дефисы в начале строк", "Предотвращает замену дефисов на тире в начале строк. Полезно, если в тексте много маркированных списков.\nПример: - Первый пункт ➔ - Первый пункт"),
+            ("typo_remove_all_empty", "Удалять абсолютно все пустые строки", "Сжимает текст в монолит. По умолчанию Типограф оставляет одну пустую строку между абзацами для читаемости; включение опции уберет и её.")
+        ]
+
+        self.typo_vars = {}
+        self.tooltips = [] # Сохраняем ссылки, чтобы сборщик мусора не удалил
+        for i, (key, text, tooltip_text) in enumerate(typo_settings_map):
+            var = ctk.BooleanVar(value=SETTINGS.get(key, DEFAULT_SETTINGS[key]))
+            self.typo_vars[key] = var
+            cb = ctk.CTkCheckBox(grid_frame, text=text, variable=var, font=self.main_font, cursor="hand2", command=self.save_typo_settings)
+            cb.grid(row=i//2, column=i%2, padx=(0, 40), pady=10, sticky="w")
+            self.tooltips.append(ToolTip(cb, tooltip_text))
+
         # Выбор темы
         theme_settings_row = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
         theme_settings_row.pack(anchor="w", pady=10)
@@ -561,6 +654,14 @@ class App(ctk.CTk):
         self.is_waiting_for_input = False
         self.bind_keyboard_shortcuts()
 
+        # Хранилище путей для каждого инструмента для сохранения состояния между переключениями
+        self.tool_paths = {
+            "typographer": "Файл не выбран",
+            "extraction": "Файл не выбран",
+            "sorting": paths.get_path("dictionaries/yellow_base.txt"),
+            "yorz": "Файл не выбран"
+        }
+
         # По умолчанию выбираем первый инструмент
         self.current_tab = None
         self.current_tool = "guide"
@@ -584,6 +685,10 @@ class App(ctk.CTk):
         if getattr(self, "running_tool", None) is not None:
             if tool_id != self.running_tool:
                 return
+
+        # Сохраняем текущий путь для текущего инструмента перед переключением
+        if self.current_tool in self.tool_paths and tool_id != self.current_tool:
+            self.tool_paths[self.current_tool] = self.file_path_var.get()
 
         self.reset_sidebar_colors()
         self.sidebar_btns[tool_id].configure(fg_color="#1f538d", text_color="white")
@@ -620,10 +725,12 @@ class App(ctk.CTk):
         else:
             self.file_picker_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
             self.action_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 20))
+            
+            # Загружаем сохраненный путь для выбранного инструмента
+            saved_path = self.tool_paths.get(tool_id, "Файл не выбран")
             if config["needs_file"]:
                 self.btn_select_file.configure(state="normal")
-                if self.file_path_var.get() == "Выбор файла не требуется":
-                    self.file_path_var.set("Файл не выбран")
+                self.file_path_var.set(saved_path)
             else:
                 self.btn_select_file.configure(state="disabled")
                 self.file_path_var.set("Выбор файла не требуется")
@@ -661,6 +768,11 @@ class App(ctk.CTk):
             self.alpha_frame.pack(side="left")
         else:
             self.alpha_frame.pack_forget()
+
+    def save_typo_settings(self):
+        for key, var in self.typo_vars.items():
+            SETTINGS[key] = var.get()
+        save_settings(SETTINGS)
 
     def dec_alpha(self):
         val = SETTINGS.get("highlight_alpha", 100)
@@ -829,7 +941,7 @@ class App(ctk.CTk):
 
         def task():
             self.after(0, lambda: self.btn_download_update.configure(state="disabled"))
-            self.after(0, lambda: self.lbl_update_status.configure(text="Скачивание...", text_color="blue"))
+            self.after(0, lambda: self.lbl_update_status.configure(text="Скачивание...", text_color="gray"))
             try:
                 # Магическая ссылка GitHub: всегда качает YoRZ.exe из последнего (latest) релиза
                 url = "https://github.com/zapeko/YoRZ/releases/latest/download/YoRZ.exe"
@@ -903,6 +1015,7 @@ class App(ctk.CTk):
                     print("\x1b[31m>> Ошибка: Для сортировки можно выбрать только yellow_base.txt или blacklist.txt!\x1b[0m")
                     return
                 self.file_path_var.set(filepath)
+                self.tool_paths[self.current_tool] = filepath
                 print(f"\x1b[32m>> Выбран файл для сортировки:\x1b[0m {filepath}")
         else:
             filetypes = (
@@ -915,14 +1028,31 @@ class App(ctk.CTk):
             filepath = filedialog.askopenfilename(title="Выберите файл для обработки", filetypes=filetypes)
             if filepath:
                 self.file_path_var.set(filepath)
-                print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
+                self.tool_paths[self.current_tool] = filepath
+                
+                # Если выбран файл в Типографе, автоматически прописываем пути с _fixed в другие инструменты
+                if self.current_tool == "typographer":
+                    base_dir = os.path.dirname(os.path.abspath(filepath))
+                    base_name, ext = os.path.splitext(os.path.basename(filepath))
+                    fixed_path = os.path.join(base_dir, f"{base_name}_fixed{ext}")
+                    
+                    self.tool_paths["extraction"] = fixed_path
+                    self.tool_paths["yorz"] = fixed_path
+                    print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
+                    print(f"\x1b[36m>> Автоматически установлены пути для извлечения и ёфикации:\x1b[0m {fixed_path}")
+                else:
+                    print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
 
     def start_processing(self):
         config = TOOLS_CONFIG[self.current_tool]
         filepath = self.file_path_var.get()
         
         if config["needs_file"] and (filepath == "Файл не выбран" or not os.path.exists(filepath)):
-            print("\x1b[31m>> Ошибка: Пожалуйста, выберите существующий файл!\x1b[0m")
+            if self.current_tool in ["extraction", "yorz"] and "_fixed" in filepath:
+                print(f"\x1b[31m>> Ошибка: Файл {filepath} ещё не существует!\x1b[0m")
+                print("\x1b[33m>> Пожалуйста, сначала выберите исходный файл в инструменте «Типограф» и запустите его для создания _fixed версии.\x1b[0m")
+            else:
+                print("\x1b[31m>> Ошибка: Пожалуйста, выберите существующий файл!\x1b[0m")
             return
 
         self.running_tool = self.current_tool
@@ -953,9 +1083,22 @@ class App(ctk.CTk):
             f = filepath if filepath not in ("Файл не выбран", "Выбор файла не требуется") else ""
 
             if tool_id == "yorz":
-                yorz.run(input_file=f if f else "book.txt")
+                yorz.run(input_file=f if f else "book.txt", app_version=APP_VERSION)
             elif tool_id == "typographer":
-                typographer.run(input_file=f if f else "book.txt")
+                options = {
+                    'zwnbsp': SETTINGS.get('typo_zwnbsp', True),
+                    'html_nbsp': SETTINGS.get('typo_html_nbsp', True),
+                    'nbsp': SETTINGS.get('typo_nbsp', True),
+                    'shy': SETTINGS.get('typo_shy', True),
+                    'spaces': SETTINGS.get('typo_spaces', True),
+                    'letter_digit_spaces': SETTINGS.get('typo_letter_digit_spaces', True),
+                    'punctuation': SETTINGS.get('typo_punctuation', True),
+                    'dashes': SETTINGS.get('typo_dashes', True),
+                    'merge_lines': SETTINGS.get('typo_merge_lines', True),
+                    'keep_leading_dashes': SETTINGS.get('typo_keep_leading_dashes', False),
+                    'remove_all_empty': SETTINGS.get('typo_remove_all_empty', False)
+                }
+                typographer.run(input_file=f if f else "book.txt", options=options, app_version=APP_VERSION)
             elif tool_id == "extraction":
                 extraction.run(input_filename=f if f else "book.txt")
             elif tool_id == "sorting":
