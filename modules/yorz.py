@@ -331,7 +331,7 @@ def apply_replacements(text, replacements_dict, span_class):
 from . import paths
 SHOULD_STOP = False
 
-def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_file=None, output_file=None, yo_dict_file=None, yo_variant_file=None):
+def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_file=None, output_file=None, yo_dict_file=None, yo_variant_file=None, app_version=None):
     if regular_file is None: regular_file = paths.get_path("dictionaries/green.dic")
     if yo_no_regular_file is None: yo_no_regular_file = paths.get_path("dictionaries/blue.dic")
     if yo_dict_file is None: yo_dict_file = paths.get_path("dictionaries/yellow.dic")
@@ -450,8 +450,19 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
                                 text_content = content.decode('utf-8')
                                 import datetime
                                 today_str = datetime.date.today().isoformat()
-                                meta_tag = f'\n    <meta name="{today_str}:" content="Текст обработан программой YoRZ 2.0 (Ёфикатор)"/>\n'
-                                text_content = text_content.replace('</metadata>', meta_tag + '</metadata>')
+                                
+                                # Ищем существующую метку
+                                meta_pattern = re.compile(r'<meta name=".*?" content="(Текст обработан программой YoRZ 2\.0 \(.*?\))"/>')
+                                match = meta_pattern.search(text_content)
+                                current_meta = match.group(1) if match else ""
+                                new_meta_str = paths.update_metadata(current_meta, "Ёфикатор", app_version)
+                                
+                                if match:
+                                    text_content = text_content.replace(match.group(0), f'<meta name="{today_str}:" content="{new_meta_str}"/>')
+                                else:
+                                    meta_tag = f'\n    <meta name="{today_str}:" content="{new_meta_str}"/>\n'
+                                    text_content = text_content.replace('</metadata>', meta_tag + '</metadata>')
+                                
                                 zout.writestr(item, text_content.encode('utf-8'))
                             except Exception as e:
                                 print(f"{Fore.RED}Ошибка обработки файла {item.filename} внутри epub: {e}{Style.RESET_ALL}")
@@ -571,8 +582,16 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
     
     today_str = datetime.date.today().isoformat()
     if is_fb2:
-        history_entry = f'<p>{today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор)</p>'
-        if '</history>' in clean_text:
+        # Ищем существующую метку в истории
+        meta_pattern = re.compile(r'<p>.*?(Текст обработан программой YoRZ 2\.0 \(.*?\))</p>')
+        match = meta_pattern.search(clean_text)
+        current_meta = match.group(1) if match else ""
+        new_meta_str = paths.update_metadata(current_meta, "Ёфикатор", app_version)
+        
+        history_entry = f'<p>{today_str}: {new_meta_str}</p>'
+        if match:
+            clean_text = clean_text.replace(match.group(0), history_entry)
+        elif '</history>' in clean_text:
             clean_text = clean_text.replace('</history>', f'\n{history_entry}\n</history>')
         elif '</document-info>' in clean_text:
             meta_tag = f'\n<history>\n{history_entry}\n</history>\n'
@@ -581,10 +600,25 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
             meta_tag = f'\n<document-info>\n<history>\n{history_entry}\n</history>\n</document-info>\n'
             clean_text = clean_text.replace('</description>', meta_tag + '</description>')
     else:
+        # Ищем существующую метку в MD или TXT
         if is_md:
-            clean_text = clean_text.rstrip() + f'\n\n<!-- {today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор) -->\n'
+            meta_pattern = re.compile(r'<!-- .*?(Текст обработан программой YoRZ 2\.0 \(.*?\)) -->')
         else:
-            clean_text = clean_text.rstrip() + f'\n\n{today_str}: Текст обработан программой YoRZ 2.0 (Ёфикатор)\n'
+            meta_pattern = re.compile(r'.*?(Текст обработан программой YoRZ 2\.0 \(.*?\))')
+            
+        match = meta_pattern.search(clean_text)
+        current_meta = match.group(1) if match else ""
+        new_meta_str = paths.update_metadata(current_meta, "Ёфикатор", app_version)
+        
+        if is_md:
+            new_entry = f'\n\n<!-- {today_str}: {new_meta_str} -->\n'
+        else:
+            new_entry = f'\n\n{today_str}: {new_meta_str}\n'
+            
+        if match:
+            clean_text = clean_text.replace(match.group(0), new_entry.strip())
+        else:
+            clean_text = clean_text.rstrip() + new_entry
 
     with open(output_clean, 'w', encoding='utf-8') as f:
         f.write(clean_text)
@@ -634,9 +668,9 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
     print(f"{Fore.GREEN}Чистая версия: {output_clean}{Style.RESET_ALL}")
     print(f"{Fore.GREEN}HTML с подсветкой: {output_html}{Style.RESET_ALL}")
 
-def run(input_file="book.txt"):
+def run(input_file="book.txt", app_version=None):
     try:
-        replace_expressions(input_file=input_file)
+        replace_expressions(input_file=input_file, app_version=app_version)
     except Exception as e:
         print(f"{Fore.RED}Ошибка при ёфикации: {str(e)}{Style.RESET_ALL}")
 
