@@ -1,7 +1,9 @@
 import re
 import os
+import datetime
 from dataclasses import dataclass, field, fields
 from colorama import Fore, Style
+from . import paths
 
 @dataclass
 class ProcessStats:
@@ -84,33 +86,42 @@ RE_MULTIPLE_SPACES = re.compile(r' {2,}')
 RE_STARTING_ELLIPSIS_SPACE = re.compile(r'^…\s+')
 RE_SPACED_ELLIPSIS = re.compile(r'(\s)…\s+(?=\S)')
 
-def handle_nbsp(line, stats):
-    count_zwnbsp = len(RE_ZWNBSP.findall(line))
-    if count_zwnbsp > 0:
-        line = RE_ZWNBSP.sub(' ', line)
-        stats.zwnbsp_replaced += count_zwnbsp
+def handle_nbsp(line, stats, options):
+    if options.get('zwnbsp'):
+        count_zwnbsp = len(RE_ZWNBSP.findall(line))
+        if count_zwnbsp > 0:
+            line = RE_ZWNBSP.sub(' ', line)
+            stats.zwnbsp_replaced += count_zwnbsp
         
-    line, count_html_nbsp = re.subn(r'&nbsp;|&#160;', ' ', line, flags=re.IGNORECASE)
-    if count_html_nbsp > 0:
-        stats.nbsp_replaced += count_html_nbsp
-        
-    count_nbsp = len(RE_NBSP.findall(line))
-    if count_nbsp > 0:
-        line = RE_NBSP.sub(' ', line)
-        stats.nbsp_replaced += count_nbsp
-        
-    count_idsp = len(RE_IDSP.findall(line))
-    if count_idsp > 0:
-        line = RE_IDSP.sub(' ', line)
-        stats.nbsp_replaced += count_idsp
-        
-    count_shy = len(RE_SHY.findall(line))
-    if count_shy > 0:
-        line = RE_SHY.sub('', line)
-        stats.shy_removed += count_shy
+    if options.get('html_nbsp'):
+        line, count_html_nbsp = re.subn(r'&nbsp;|&#160;', ' ', line, flags=re.IGNORECASE)
+        if count_html_nbsp > 0:
+            stats.nbsp_replaced += count_html_nbsp
+            
+    if options.get('nbsp'):
+        count_nbsp = len(RE_NBSP.findall(line))
+        if count_nbsp > 0:
+            line = RE_NBSP.sub(' ', line)
+            stats.nbsp_replaced += count_nbsp
+            
+        count_idsp = len(RE_IDSP.findall(line))
+        if count_idsp > 0:
+            line = RE_IDSP.sub(' ', line)
+            stats.nbsp_replaced += count_idsp
+            
+    if options.get('shy'):
+        count_shy = len(RE_SHY.findall(line))
+        if count_shy > 0:
+            line = RE_SHY.sub('', line)
+            stats.shy_removed += count_shy
+            
     return line
 
-def handle_dashes_and_hyphens(line, stats, keep_leading_dashes):
+def handle_dashes_and_hyphens(line, stats, options):
+    if not options.get('dashes'):
+        return line
+        
+    keep_leading_dashes = options.get('keep_leading_dashes', False)
     protected = {}
     def protect(match, key_prefix):
         seq = match.group(0)
@@ -149,54 +160,62 @@ def handle_dashes_and_hyphens(line, stats, keep_leading_dashes):
         
     return line
 
-def handle_spacing(line, stats, is_md=False):
+def handle_spacing(line, stats, options, is_md=False):
     protected = {}
     def protect(match, key_prefix):
         seq = match.group(0)
         key = f"__{key_prefix}_{len(protected)}__"
         protected[key] = seq
         return key
+    
+    # Сначала защищаем то, что не должно меняться пробелами
     line = RE_LETTER_DOT_LETTER.sub(lambda m: protect(m, "LDL"), line)
     line = RE_DIGIT_PUNCT_DIGIT.sub(lambda m: protect(m, "DPD"), line)
-    line, count = RE_NUM_DASH_NUM_WORD.subn(r'\1\2\3 \4', line); stats.number_word_spaces_added += count
-    line, count = RE_WORD_NUM.subn(r'\1 \2', line); stats.number_word_spaces_added += count
-    line, count = RE_NUM_WORD.subn(r'\1 \2', line); stats.number_word_spaces_added += count
-    
-    original_len = len(line)
-    if is_md:
-        leading_spaces_match = re.match(r'^\s+', line)
-        leading_spaces = leading_spaces_match.group(0) if leading_spaces_match else ""
-        # Markdown soft break: two spaces at end of line. Keep them if present.
-        trailing_spaces_match = re.search(r'  +$', line)
-        trailing_spaces = "  " if trailing_spaces_match else ""
+
+    # Опция разделения букв и цифр (FB2 -> FB 2)
+    if options.get('letter_digit_spaces'):
+        line, count = RE_NUM_DASH_NUM_WORD.subn(r'\1\2\3 \4', line); stats.number_word_spaces_added += count
+        line, count = RE_WORD_NUM.subn(r'\1 \2', line); stats.number_word_spaces_added += count
+        line, count = RE_NUM_WORD.subn(r'\1 \2', line); stats.number_word_spaces_added += count
+
+    # Основная опция очистки лишних пробелов
+    if options.get('spaces'):
+        original_len = len(line)
+        if is_md:
+            leading_spaces_match = re.match(r'^\s+', line)
+            leading_spaces = leading_spaces_match.group(0) if leading_spaces_match else ""
+            # Markdown soft break: two spaces at end of line. Keep them if present.
+            trailing_spaces_match = re.search(r'  +$', line)
+            trailing_spaces = "  " if trailing_spaces_match else ""
+            
+            line = line.strip()
+            line = leading_spaces + line + trailing_spaces
+        else:
+            line = line.strip()
+        stats.spaces_removed += original_len - len(line)
         
-        line = line.strip()
-        line = leading_spaces + line + trailing_spaces
-    else:
-        line = line.strip()
-    stats.spaces_removed += original_len - len(line)
-    
-    original_len = len(line)
-    if not is_md:
-        line = RE_MULTIPLE_SPACES.sub(' ', line)
-    else:
-        # In Markdown, avoid replacing multiple spaces inside lines to not break indented blocks or tables, but at least we can fix basic things or leave it mostly alone.
-        pass
-    stats.spaces_removed += original_len - len(line)
-    
-    line, count = RE_DASH_NO_SPACE_BEFORE.subn(r' \1', line); stats.spaces_added_around_dash += count
-    line, count = RE_DASH_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_around_dash += count
-    line, count = RE_PUNCT_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_after_punct += count
-    line, count = RE_END_PUNCT_NO_SPACE_AFTER.subn(' ', line); stats.spaces_added_after_punct += count
-    line, count = RE_QE_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_after_punct += count
-    line = RE_PUNCT_SPACE_PUNCT.sub(r'\1\2', line)
-    line = RE_STARTING_ELLIPSIS_SPACE.sub('…', line)
-    line = RE_SPACED_ELLIPSIS.sub(r'\1…', line)
+        original_len = len(line)
+        if not is_md:
+            line = RE_MULTIPLE_SPACES.sub(' ', line)
+        stats.spaces_removed += original_len - len(line)
+        
+        line, count = RE_DASH_NO_SPACE_BEFORE.subn(r' \1', line); stats.spaces_added_around_dash += count
+        line, count = RE_DASH_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_around_dash += count
+        line, count = RE_PUNCT_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_after_punct += count
+        line, count = RE_END_PUNCT_NO_SPACE_AFTER.subn(' ', line); stats.spaces_added_after_punct += count
+        line, count = RE_QE_NO_SPACE_AFTER.subn(r'\1 ', line); stats.spaces_added_after_punct += count
+        line = RE_PUNCT_SPACE_PUNCT.sub(r'\1\2', line)
+        line = RE_STARTING_ELLIPSIS_SPACE.sub('…', line)
+        line = RE_SPACED_ELLIPSIS.sub(r'\1…', line)
+
     for key, value in protected.items():
         line = line.replace(key, value)
     return line
 
-def handle_punctuation(line, stats):
+def handle_punctuation(line, stats, options):
+    if not options.get('punctuation'):
+        return line
+        
     protected = {}
     def protect(match):
         seq = match.group(0)
@@ -219,9 +238,9 @@ def handle_punctuation(line, stats):
         line = line.replace(key, value)
     return line
 
-def process_line(line, keep_leading_dashes, is_md=False):
+def process_line(line, options, is_md=False):
     stats = ProcessStats()
-    line = handle_nbsp(line, stats)
+    line = handle_nbsp(line, stats, options)
     
     # In Markdown, prevent changing --- to em dash
     if is_md:
@@ -229,9 +248,9 @@ def process_line(line, keep_leading_dashes, is_md=False):
         if md_hr_match:
             return line, stats
 
-    line = handle_dashes_and_hyphens(line, stats, keep_leading_dashes)
-    line = handle_punctuation(line, stats)
-    line = handle_spacing(line, stats, is_md)
+    line = handle_dashes_and_hyphens(line, stats, options)
+    line = handle_punctuation(line, stats, options)
+    line = handle_spacing(line, stats, options, is_md)
     return line, stats
 
 def remove_empty_lines(lines, remove_all=False):
@@ -271,7 +290,7 @@ def merge_lines(lines):
         i += 1
     return merged_lines, merge_count
 
-def process_text_block(text_block, keep_leading_dashes, remove_all_empty, total_stats, is_md=False):
+def process_text_block(text_block, options, total_stats, is_md=False):
     protected_elements = {}
     
     def prot(m, prefix):
@@ -295,16 +314,16 @@ def process_text_block(text_block, keep_leading_dashes, remove_all_empty, total_
     text_block = re.sub(r'#[0-9a-fA-F]{3,8}\b', lambda m: prot(m, 'COL'), text_block)
 
     lines = text_block.splitlines()
-    lines, empty_removed = remove_empty_lines(lines, remove_all_empty)
+    lines, empty_removed = remove_empty_lines(lines, options.get('remove_all_empty', False))
     total_stats.empty_lines_removed += empty_removed
     
-    if not is_md:
+    if not is_md and options.get('merge_lines'):
         lines, merged_count = merge_lines(lines)
         total_stats.lines_merged += merged_count
         
     processed_lines = []
     for line in lines:
-        processed_line, line_stats = process_line(line, keep_leading_dashes, is_md)
+        processed_line, line_stats = process_line(line, options, is_md)
         processed_lines.append(processed_line)
         total_stats += line_stats
         
@@ -315,7 +334,7 @@ def process_text_block(text_block, keep_leading_dashes, remove_all_empty, total_
             
     return result
 
-def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats, is_md=False):
+def process_content_with_tags(content, options, total_stats, is_md=False):
     tag_pattern = re.compile(r'(<[^>]+>)')
     parts = tag_pattern.split(content)
     for i in range(0, len(parts), 2):
@@ -332,7 +351,7 @@ def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, to
         leading_space = leading_space_match.group(0) if leading_space_match else ""
         trailing_space = trailing_space_match.group(0) if trailing_space_match else ""
         
-        processed = process_text_block(parts[i], keep_leading_dashes, remove_all_empty, total_stats, is_md)
+        processed = process_text_block(parts[i], options, total_stats, is_md)
         
         if processed.strip():
             parts[i] = leading_space + processed.strip() + trailing_space
@@ -341,13 +360,27 @@ def process_content_with_tags(content, keep_leading_dashes, remove_all_empty, to
             
     return ''.join(parts)
 
-def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_leading_dashes=False, quiet=False):
+def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_leading_dashes=False, quiet=False, options=None, app_version=None):
+    default_options = {
+        'zwnbsp': True, 'html_nbsp': True, 'nbsp': True, 'shy': True,
+        'spaces': True, 'letter_digit_spaces': True, 'punctuation': True, 'dashes': True, 'merge_lines': True,
+        'keep_leading_dashes': keep_leading_dashes,
+        'remove_all_empty': remove_all_empty
+    }
+
+    
+    if options is None:
+        options = default_options
+    else:
+        for k, v in default_options.items():
+            options.setdefault(k, v)
+
     is_epub = input_file.lower().endswith('.epub')
     is_fb2 = input_file.lower().endswith('.fb2')
     is_md = input_file.lower().endswith('.md')
     
     if is_md:
-        keep_leading_dashes = True
+        options['keep_leading_dashes'] = True
 
     if not output_file:
         base_dir = os.path.dirname(os.path.abspath(input_file))
@@ -374,8 +407,28 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
                         if item.filename.lower().endswith(('.html', '.xhtml', '.htm')):
                             try:
                                 text = content.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n')
-                                processed = process_content_with_tags(text, keep_leading_dashes, remove_all_empty, total_stats)
+                                processed = process_content_with_tags(text, options, total_stats)
                                 zout.writestr(item, processed.encode('utf-8'))
+                            except Exception as e:
+                                zout.writestr(item, content)
+                        elif item.filename.lower().endswith('.opf'):
+                            try:
+                                text_content = content.decode('utf-8')
+                                today_str = datetime.date.today().isoformat()
+                                
+                                # Ищем существующую метку
+                                meta_pattern = re.compile(r'<meta name=".*?" content="(Текст обработан программой YoRZ 2\.0 \(.*?\))"/>')
+                                match = meta_pattern.search(text_content)
+                                current_meta = match.group(1) if match else ""
+                                new_meta_str = paths.update_metadata(current_meta, "Типограф", app_version)
+                                
+                                if match:
+                                    text_content = text_content.replace(match.group(0), f'<meta name="{today_str}:" content="{new_meta_str}"/>')
+                                else:
+                                    meta_tag = f'\n    <meta name="{today_str}:" content="{new_meta_str}"/>\n'
+                                    text_content = text_content.replace('</metadata>', meta_tag + '</metadata>')
+                                
+                                zout.writestr(item, text_content.encode('utf-8'))
                             except Exception as e:
                                 zout.writestr(item, content)
                         else:
@@ -399,9 +452,50 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
                 return
 
         if is_fb2:
-            processed = process_content_with_tags(content, keep_leading_dashes, remove_all_empty, total_stats, is_md)
+            processed = process_content_with_tags(content, options, total_stats, is_md)
         else:
-            processed = process_text_block(content, keep_leading_dashes, remove_all_empty, total_stats, is_md)
+            processed = process_text_block(content, options, total_stats, is_md)
+
+        # Добавляем метаданные
+        today_str = datetime.date.today().isoformat()
+        if is_fb2:
+            # Ищем существующую метку в истории
+            meta_pattern = re.compile(r'<p>.*?(Текст обработан программой YoRZ 2\.0 \(.*?\))</p>')
+            match = meta_pattern.search(processed)
+            current_meta = match.group(1) if match else ""
+            new_meta_str = paths.update_metadata(current_meta, "Типограф")
+            
+            history_entry = f'<p>{today_str}: {new_meta_str}</p>'
+            if match:
+                processed = processed.replace(match.group(0), history_entry)
+            elif '</history>' in processed:
+                processed = processed.replace('</history>', f'\n{history_entry}\n</history>')
+            elif '</document-info>' in processed:
+                meta_tag = f'\n<history>\n{history_entry}\n</history>\n'
+                processed = processed.replace('</document-info>', meta_tag + '</document-info>')
+            elif '</description>' in processed:
+                meta_tag = f'\n<document-info>\n<history>\n{history_entry}\n</history>\n</document-info>\n'
+                processed = processed.replace('</description>', meta_tag + '</description>')
+        else:
+            # Ищем существующую метку в MD или TXT
+            if is_md:
+                meta_pattern = re.compile(r'<!-- .*?(Текст обработан программой YoRZ 2\.0 \(.*?\)) -->')
+            else:
+                meta_pattern = re.compile(r'.*?(Текст обработан программой YoRZ 2\.0 \(.*?\))')
+                
+            match = meta_pattern.search(processed)
+            current_meta = match.group(1) if match else ""
+            new_meta_str = paths.update_metadata(current_meta, "Типограф", app_version)
+            
+            if is_md:
+                new_entry = f'\n\n<!-- {today_str}: {new_meta_str} -->\n'
+            else:
+                new_entry = f'\n\n{today_str}: {new_meta_str}\n'
+                
+            if match:
+                processed = processed.replace(match.group(0), new_entry.strip())
+            else:
+                processed = processed.rstrip() + new_entry
 
         try:
             with open(output_file, 'w', encoding='utf-8') as f_out:
@@ -411,7 +505,26 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
             return
 
     print(f"\n{Fore.GREEN}{'#'*78}{Style.RESET_ALL}")
-    print(f"{Fore.GREEN}Обработка завершена. Исправлено ошибок: {total_stats.total}. Результат в: {output_file}{Style.RESET_ALL}")
+    if quiet:
+        print(f"{Fore.GREEN}Обработка завершена.\nРезультат в: {output_file}{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.GREEN}Обработка завершена. Всего исправлено ошибок/недочетов: {total_stats.total}.\nРезультат в: {output_file}{Style.RESET_ALL}")
+        if total_stats.total > 0:
+            print(f"{Fore.GREEN}{'#'*78}{Style.RESET_ALL}")
+            print(f"{Fore.CYAN}Детальная статистика:{Style.RESET_ALL}")
+            if total_stats.zwnbsp_replaced > 0: print(f"  - Удалено невидимых символов ZWNBSP: {total_stats.zwnbsp_replaced}")
+            if total_stats.nbsp_replaced > 0: print(f"  - Заменено неразрывных/HTML пробелов: {total_stats.nbsp_replaced}")
+            if total_stats.shy_removed > 0: print(f"  - Удалено мягких переносов: {total_stats.shy_removed}")
+            if total_stats.spaces_removed > 0: print(f"  - Удалено лишних пробелов: {total_stats.spaces_removed}")
+            if total_stats.spaces_added_around_dash > 0: print(f"  - Проставлено пробелов вокруг тире: {total_stats.spaces_added_around_dash}")
+            if total_stats.spaces_added_after_punct > 0: print(f"  - Проставлено пробелов после знаков препинания: {total_stats.spaces_added_after_punct}")
+            if total_stats.dashes_replaced > 0: print(f"  - Нормализовано тире: {total_stats.dashes_replaced}")
+            if total_stats.number_word_spaces_added > 0: print(f"  - Разделено букв и цифр пробелом: {total_stats.number_word_spaces_added}")
+            if total_stats.hyphens_added_after_numbers > 0: print(f"  - Добавлено дефисов после цифр: {total_stats.hyphens_added_after_numbers}")
+            if total_stats.punctuation_errors_fixed > 0: print(f"  - Исправлено ошибок пунктуации: {total_stats.punctuation_errors_fixed}")
+            if total_stats.empty_lines_removed > 0: print(f"  - Удалено лишних пустых строк: {total_stats.empty_lines_removed}")
+            if total_stats.lines_merged > 0: print(f"  - Склеено разорванных строк: {total_stats.lines_merged}")
+
     print(f"{Fore.GREEN}{'#'*78}{Style.RESET_ALL}\n")
 
 if __name__ == '__main__':
