@@ -355,4 +355,51 @@ def open_user_data_dir():
         print(f"Вы можете открыть её вручную: {path}")
         return False
 
+def get_app_version():
+    """Считывает версию программы из файла version.txt."""
+    try:
+        version_file = os.path.join(APP_DIR, "version.txt")
+        if not os.path.exists(version_file):
+            # Если запущено из исходников (не скомпилировано), ищем на уровень выше
+            version_file = os.path.join(os.path.dirname(APP_DIR), "version.txt")
+        
+        with open(version_file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return None # Возвращаем None, если файл не найден или ошибка чтения
 
+def update_metadata(current_meta, tool_name, app_version=None):
+    """
+    Обновляет строку метаданных в зависимости от текущего инструмента и того, что уже было.
+    tool_name: 'Ёфикатор' или 'Типограф'
+    """
+    if app_version is None:
+        app_version = get_app_version()
+        
+    if app_version:
+        prefix = f"Текст обработан программой YoRZ v{app_version} ("
+    else:
+        prefix = "Текст обработан программой YoRZ ("
+        
+    suffix = ")"
+    
+    # Регулярное выражение для поиска старых форматов меток (YoRZ 2.0 или YoRZ vX.X.X)
+    old_meta_pattern = re.compile(r"Текст обработан программой YoRZ (?:2\.0|v[\d\.]+)\s*\((.*?)\)")
+    
+    if not current_meta or not old_meta_pattern.search(current_meta):
+        return f"{prefix}{tool_name}{suffix}"
+    
+    # Извлекаем содержимое скобок существующей метки
+    match = old_meta_pattern.search(current_meta)
+    content = match.group(1)
+        
+    if tool_name in content:
+        # Если инструмент уже есть, просто обновляем версию в заголовке
+        return f"{prefix}{content}{suffix}"
+        
+    if "Ёфикатор" in content and tool_name == "Типограф":
+        return f"{prefix}Ёфикатор + Типограф{suffix}"
+    elif "Типограф" in content and tool_name == "Ёфикатор":
+        return f"{prefix}Типограф + Ёфикатор{suffix}"
+    
+    return f"{prefix}{tool_name}{suffix}"
