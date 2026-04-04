@@ -19,6 +19,7 @@ class ProcessStats:
     punctuation_errors_fixed: int = 0
     empty_lines_removed: int = 0
     lines_merged: int = 0
+    deyo_replaced: int = 0
 
     def __add__(self, other):
         if not isinstance(other, ProcessStats): return NotImplemented
@@ -115,6 +116,18 @@ def handle_nbsp(line, stats, options):
             line = RE_SHY.sub('', line)
             stats.shy_removed += count_shy
             
+    return line
+
+def handle_deyo(line, stats, options):
+    if options.get('deyo'):
+        count_yo = line.count('ё')
+        count_Yo = line.count('Ё')
+        if count_yo > 0:
+            line = line.replace('ё', 'е')
+            stats.deyo_replaced += count_yo
+        if count_Yo > 0:
+            line = line.replace('Ё', 'Е')
+            stats.deyo_replaced += count_Yo
     return line
 
 def handle_dashes_and_hyphens(line, stats, options):
@@ -241,6 +254,7 @@ def handle_punctuation(line, stats, options):
 def process_line(line, options, is_md=False):
     stats = ProcessStats()
     line = handle_nbsp(line, stats, options)
+    line = handle_deyo(line, stats, options)
     
     # In Markdown, prevent changing --- to em dash
     if is_md:
@@ -365,7 +379,8 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
         'zwnbsp': True, 'html_nbsp': True, 'nbsp': True, 'shy': True,
         'spaces': True, 'letter_digit_spaces': True, 'punctuation': True, 'dashes': True, 'merge_lines': True,
         'keep_leading_dashes': keep_leading_dashes,
-        'remove_all_empty': remove_all_empty
+        'remove_all_empty': remove_all_empty,
+        'deyo': False
     }
 
     
@@ -524,6 +539,7 @@ def run(input_file="book.txt", output_file=None, remove_all_empty=False, keep_le
             if total_stats.punctuation_errors_fixed > 0: print(f"  - Исправлено ошибок пунктуации: {total_stats.punctuation_errors_fixed}")
             if total_stats.empty_lines_removed > 0: print(f"  - Удалено лишних пустых строк: {total_stats.empty_lines_removed}")
             if total_stats.lines_merged > 0: print(f"  - Склеено разорванных строк: {total_stats.lines_merged}")
+            if total_stats.deyo_replaced > 0: print(f"  - Проведена деёфикация (Ё -> Е): {total_stats.deyo_replaced}")
 
     print(f"{Fore.GREEN}{'#'*78}{Style.RESET_ALL}\n")
 
