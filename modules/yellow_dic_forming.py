@@ -99,7 +99,7 @@ def run():
         for line in final_results:
             f.write(line + "\n")
 
-    print(f"{Fore.GREEN}Словарь {files['dic']} для скрипта-ёфикатора YoRZ сформирован.{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Словарь {files['dic']} для ёфикатора YoRZ сформирован.{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     run()
