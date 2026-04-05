@@ -81,12 +81,45 @@ def preserve_case(match, replacement):
     original_text = match.group()
     original_words = re.findall(r'\w+|\W+', original_text)
     replacement_words = re.findall(r'\w+|\W+', replacement)
-    result = []
-    for orig_word, repl_word in zip(original_words, replacement_words):
-        if orig_word.isupper(): result.append(repl_word.upper())
-        elif orig_word.istitle(): result.append(repl_word.title())
-        else: result.append(repl_word.lower())
-    return ''.join(result)
+    
+    if len(original_words) == len(replacement_words):
+        result = []
+        for orig_word, repl_word in zip(original_words, replacement_words):
+            if not any(c.isalpha() for c in orig_word) or not any(c.isalpha() for c in repl_word):
+                result.append(repl_word)
+            elif orig_word.isupper() and any(c.isalpha() for c in orig_word):
+                result.append(repl_word.upper())
+            elif orig_word.istitle() and any(c.isalpha() for c in orig_word):
+                result.append(repl_word.title())
+            else:
+                result.append(repl_word.lower())
+        return ''.join(result)
+    else:
+        # Handling cases where number of tokens changed (e.g. "яркозеленой" -> "ярко-зелёной")
+        if not any(c.isalpha() for c in original_text):
+            return replacement
+            
+        alpha_orig = [w for w in original_words if any(c.isalpha() for c in w)]
+        if not alpha_orig:
+            return replacement
+            
+        first_word = alpha_orig[0]
+        
+        if original_text.isupper():
+            return replacement.upper()
+        
+        if first_word.istitle() or first_word.isupper():
+            if replacement:
+                # Need to find the first letter to capitalize, preserving potential leading non-alpha
+                match_alpha = re.search(r'[a-zA-Zа-яА-ЯёЁ]', replacement)
+                if match_alpha:
+                    idx = match_alpha.start()
+                    return replacement[:idx] + replacement[idx].upper() + replacement[idx+1:].lower()
+                else:
+                    return replacement[0].upper() + replacement[1:].lower()
+            return replacement
+            
+        return replacement.lower()
 
 def replace_yo_in_text(text, yo_dict):
     tag_pattern = re.compile(r'(<[^>]+>)')
@@ -420,6 +453,8 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
                 with zipfile.ZipFile(tmp_epub, mode, compression=zipfile.ZIP_DEFLATED) as zout:
                     from modules.epub_utils import get_ordered_infolist
                     infolist = get_ordered_infolist(zin)
+                    if hasattr(builtins, 'gui_update_progress') and len(infolist) > 0:
+                        builtins.gui_update_progress(start_idx / len(infolist))
                     for i in range(start_idx, len(infolist)):
                         item = infolist[i]
                         if SHOULD_STOP: raise KeyboardInterrupt()
@@ -526,6 +561,8 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
         parts = re.split(r'(<p(?=[\s>/])[^>]*>.*?</p>|<v(?=[\s>/])[^>]*>.*?</v>|<text-author(?=[\s>/])[^>]*>.*?</text-author>|<subtitle(?=[\s>/])[^>]*>.*?</subtitle>|<title(?=[\s>/])[^>]*>.*?</title>|<empty-line(?=[\s>/])[^>]*>.*?</empty-line>|<empty-line(?=[\s>/])[^>]*/>)', text_content, flags=re.IGNORECASE | re.DOTALL)
         
         try:
+            if hasattr(builtins, 'gui_update_progress') and len(parts) > 0:
+                builtins.gui_update_progress(start_idx / len(parts))
             for i in range(start_idx, len(parts)):
                 if SHOULD_STOP: raise KeyboardInterrupt()
                 part = parts[i]
@@ -556,6 +593,8 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
         print(f"{Fore.CYAN}Чтение и обработка текста...{Style.RESET_ALL}")
         paragraphs = text_content.split('\n')
         try:
+            if hasattr(builtins, 'gui_update_progress') and len(paragraphs) > 0:
+                builtins.gui_update_progress(start_idx / len(paragraphs))
             for i in range(start_idx, len(paragraphs)):
                 if SHOULD_STOP: raise KeyboardInterrupt()
                 p_text = paragraphs[i]
