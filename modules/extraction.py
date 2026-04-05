@@ -122,6 +122,25 @@ def run(input_filename="book.txt"):
         print(f"{Fore.RED}Файл dictionaries/yellow_base.txt не найден!{Style.RESET_ALL}")
         exclude_words = set()
 
+    # Extract words from green.dic and blue.dic to also exclude them
+    for dic_name in ["dictionaries/green.dic", "dictionaries/blue.dic"]:
+        dic_path = paths.get_path(dic_name)
+        if os.path.exists(dic_path):
+            try:
+                with open(dic_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'): continue
+                        if '(' in line:
+                            line = line.split('(')[0]
+                        parts = line.split('|')
+                        for p in parts:
+                            p_clean = re.sub(r'\\w[\*\+]', ' ', p)
+                            for w in extract_words(p_clean):
+                                exclude_words.add(remove_diacritics(w.lower()))
+            except Exception as e:
+                print(f"{Fore.RED}Ошибка чтения {dic_name}: {e}{Style.RESET_ALL}")
+
     final_words = extracted_set - exclude_words
 
     try:
