@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from modules import paths
 
 # Версия программы (обновляйте здесь при выпуске новой версии)
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.1.2"
 
 # Быстрая проверка при запуске (только копирование недостающих файлов)
 paths.ensure_user_data_exists()
@@ -85,7 +85,11 @@ def save_settings(settings):
 SETTINGS = load_settings()
 
 # Устанавливаем тему из настроек
-ctk.set_appearance_mode(SETTINGS["theme"])
+appearance_mode = SETTINGS["theme"]
+if appearance_mode == "Aquamarine":
+    ctk.set_appearance_mode("Dark")
+else:
+    ctk.set_appearance_mode(appearance_mode)
 ctk.set_default_color_theme("blue")
 
 class StdoutRedirector:
@@ -400,7 +404,7 @@ class App(ctk.CTk):
         self.file_picker_frame.grid_columnconfigure(1, weight=1)
         
         self.file_path_var = ctk.StringVar(value="Файл не выбран")
-        self.btn_select_file = ctk.CTkButton(self.file_picker_frame, text="Выбрать файл...", font=self.main_font, command=self.select_file, height=35)
+        self.btn_select_file = ctk.CTkButton(self.file_picker_frame, text="Выбрать файл...", font=self.bold_font, command=self.select_file, height=35)
         self.btn_select_file.grid(row=0, column=0, padx=(0, 20), sticky="w")
         
         self.lbl_file_path = ctk.CTkLabel(self.file_picker_frame, textvariable=self.file_path_var, font=self.main_font, text_color="gray50", height=35)
@@ -514,12 +518,14 @@ class App(ctk.CTk):
             ]
 
         self.typo_vars = {}
+        self.typo_checkboxes = [] # Список для смены тем
         self.tooltips = [] # Сохраняем ссылки, чтобы сборщик мусора не удалил
         for i, (key, text, tooltip_text) in enumerate(typo_settings_map):
             var = ctk.BooleanVar(value=SETTINGS.get(key, DEFAULT_SETTINGS[key]))
             self.typo_vars[key] = var
             cb = ctk.CTkCheckBox(grid_frame, text=text, variable=var, font=self.main_font, cursor="hand2", command=self.save_typo_settings)
             cb.grid(row=i//2, column=i%2, padx=(0, 40), pady=10, sticky="w")
+            self.typo_checkboxes.append(cb)
             self.tooltips.append(ToolTip(cb, tooltip_text))
 
         # Выбор темы
@@ -528,14 +534,14 @@ class App(ctk.CTk):
         
         ctk.CTkLabel(theme_settings_row, text="Тема:", font=self.bold_font).pack(side="left", padx=(0, 20))
         
-        self.theme_map = {"Тёмная": "Dark", "Светлая": "Light"}
-        self.reverse_theme_map = {"Dark": "Тёмная", "Light": "Светлая"}
+        self.theme_map = {"Тёмная": "Dark", "Светлая": "Light", "Аквамарин": "Aquamarine"}
+        self.reverse_theme_map = {"Dark": "Тёмная", "Light": "Светлая", "Aquamarine": "Аквамарин"}
         
         current_theme_ru = self.reverse_theme_map.get(SETTINGS.get("theme", "Dark"), "Тёмная")
         
         self.theme_optionmenu = ctk.CTkOptionMenu(
             theme_settings_row,
-            values=["Тёмная", "Светлая"],
+            values=["Тёмная", "Светлая", "Аквамарин"],
             font=self.bold_font,
             dropdown_font=self.bold_font,
             command=self.change_theme
@@ -668,6 +674,102 @@ class App(ctk.CTk):
         self.current_tab = None
         self.current_tool = "guide"
         self.select_tool("guide")
+        self.apply_theme_to_all()
+
+    def get_theme_colors(self):
+        theme = SETTINGS.get("theme", "Dark")
+        if theme == "Aquamarine":
+            return {
+                "primary": "#48D1CC",
+                "hover": "#3CB371",
+                "text": "black",
+                "sidebar_active": "#48D1CC",
+                "sidebar_active_text": "black",
+                "button_color": "#20B2AA",
+                "button_hover": "#008B8B",
+                "checkmark": "black",
+                "progress_color": "#48D1CC",
+                "disabled_text": "gray30"
+            }
+        else:
+            # Стандартный синий цвет CustomTkinter для тёмной/светлой тем
+            # Для тёмной темы ctk использует #1f538d
+            return {
+                "primary": "#1f538d",
+                "hover": "#14375d",
+                "text": "white",
+                "sidebar_active": "#1f538d",
+                "sidebar_active_text": "white",
+                "button_color": "#14375d",
+                "button_hover": "#0e2642",
+                "checkmark": "white",
+                "progress_color": "#1f538d",
+                "disabled_text": "gray60"
+            }
+
+    def apply_theme_to_all(self):
+        colors = self.get_theme_colors()
+        
+        # Обновляем основные кнопки
+        self.btn_start.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
+        self.btn_select_file.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"], text_color_disabled=colors["disabled_text"])
+        self.btn_check_update.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
+        self.btn_sync_dicts.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
+        
+        # Обновляем кнопку Скачать всегда, чтобы цвет применялся даже если она отключена
+        self.btn_download_update.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"], text_color_disabled=colors["disabled_text"])
+        
+        # Обновляем выпадающие списки (OptionMenus)
+        if hasattr(self, "theme_optionmenu"):
+            self.theme_optionmenu.configure(fg_color=colors["primary"], button_color=colors["button_color"], button_hover_color=colors["button_hover"], text_color=colors["text"])
+        if hasattr(self, "font_family_dropdown"):
+            self.font_family_dropdown.configure(fg_color=colors["primary"], button_color=colors["button_color"], button_hover_color=colors["button_hover"], text_color=colors["text"])
+        if hasattr(self, "font_style_dropdown"):
+            self.font_style_dropdown.configure(fg_color=colors["primary"], button_color=colors["button_color"], button_hover_color=colors["button_hover"], text_color=colors["text"])
+
+        # Обновляем кружочек ползунка
+        if hasattr(self, "font_slider"):
+            self.font_slider.configure(button_color=colors["primary"], button_hover_color=colors["hover"], progress_color=colors["primary"])
+
+        # Кнопки выбора омографов
+        for btn in self.choice_buttons:
+            if btn != self.btn_choice_5: # Кнопка 5 серая
+                btn.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
+
+        # Прогресс бар
+        if hasattr(self, "progress_bar"):
+            self.progress_bar.configure(progress_color=colors["progress_color"])
+
+        # Чекбоксы типографа
+        for cb in self.typo_checkboxes:
+            cb.configure(fg_color=colors["primary"], hover_color=colors["hover"], checkmark_color=colors["checkmark"])
+
+        # Обновляем иконки стрелок
+        self.update_arrow_icons()
+        
+        # Обновляем активную вкладку в сайдбаре
+        if self.current_tab == "settings":
+            self.select_settings()
+        elif self.current_tab == "tool":
+            self.select_tool(self.current_tool)
+
+    def update_arrow_icons(self):
+        theme = SETTINGS.get("theme", "Dark")
+        if theme == "Aquamarine":
+            # В аквамариновой теме используем один цвет для обоих режимов (т.к. она всегда Dark)
+            color_light = "#48D1CC"
+            color_dark = "#48D1CC"
+        else:
+            color_light = "#1F6AA5"
+            color_dark = "#3B8ED0"
+            
+        arr_left_light = create_arrow_image("left", color=color_light, size=(16, 16))
+        arr_left_dark = create_arrow_image("left", color=color_dark, size=(16, 16))
+        arr_right_light = create_arrow_image("right", color=color_light, size=(16, 16))
+        arr_right_dark = create_arrow_image("right", color=color_dark, size=(16, 16))
+        
+        self.img_left.configure(light_image=arr_left_light, dark_image=arr_left_dark)
+        self.img_right.configure(light_image=arr_right_light, dark_image=arr_right_dark)
 
     def open_dictionaries_folder(self):
         dict_path = os.path.join(user_dir, "dictionaries")
@@ -692,15 +794,17 @@ class App(ctk.CTk):
         if self.current_tool in self.tool_paths and tool_id != self.current_tool:
             self.tool_paths[self.current_tool] = self.file_path_var.get()
 
+        colors = self.get_theme_colors()
         self.reset_sidebar_colors()
-        self.sidebar_btns[tool_id].configure(fg_color="#1f538d", text_color="white")
-        
+        self.sidebar_btns[tool_id].configure(fg_color=colors["sidebar_active"], text_color=colors["sidebar_active_text"])
+
         if self.current_tab != "tool":
             self.settings_frame.grid_forget()
             self.tool_frame.grid(row=0, column=1, padx=30, pady=30, sticky="nsew")
             self.current_tab = "tool"
 
         self.current_tool = tool_id
+
         config = TOOLS_CONFIG[tool_id]
         self.header_label.configure(text=config["name"])
         
@@ -752,20 +856,26 @@ class App(ctk.CTk):
                     print("Готов к запуску.")
 
     def select_settings(self):
+        colors = self.get_theme_colors()
         self.reset_sidebar_colors()
-        self.btn_tab_settings.configure(fg_color="#1f538d", text_color="white")
-        
+        self.btn_tab_settings.configure(fg_color=colors["sidebar_active"], text_color=colors["sidebar_active_text"])
+
         if self.current_tab != "settings":
             self.tool_frame.grid_forget()
             self.settings_frame.grid(row=0, column=1, padx=30, pady=30, sticky="nsew")
             self.current_tab = "settings"
-
     def change_theme(self, choice_ru):
         theme_en = self.theme_map[choice_ru]
-        ctk.set_appearance_mode(theme_en)
+        if theme_en == "Aquamarine":
+            ctk.set_appearance_mode("Dark")
+        else:
+            ctk.set_appearance_mode(theme_en)
+        
         SETTINGS["theme"] = theme_en
         save_settings(SETTINGS)
         self.update_text_tags()
+        self.apply_theme_to_all()
+        
         if theme_en == "Light":
             self.alpha_frame.pack(side="left")
         else:
