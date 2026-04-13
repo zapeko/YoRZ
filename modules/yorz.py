@@ -3,6 +3,8 @@ import os
 import zipfile
 import sys
 import unicodedata
+import base64
+import mimetypes
 from colorama import Fore, Style
 
 def remove_diacritics(text):
@@ -62,16 +64,20 @@ def load_yo_dict(file_path):
             except re.error: continue
 
             exc_patterns = []
+            exc_set = set()
             if rest:
                 exc_part = rest[0].split(')', 1)[0].strip()
                 for exc in exc_part.split(':'):
-                    exc = re.sub(r'\\(w[\*\+])', r'\\\1', exc.strip())
-                    try: exc_patterns.append(re.compile(fr'\b{exc}\b', re.I))
+                    exc_clean = exc.strip().lower()
+                    exc_set.add(exc_clean)
+                    exc_re = re.sub(r'\\(w[\*\+])', r'\\\1', exc.strip())
+                    try: exc_patterns.append(re.compile(fr'\b{exc_re}\b', re.I))
                     except re.error: pass
 
             yo_dict[key] = {
                 'replace': replacement,
                 'exceptions_compiled': exc_patterns,
+                'exceptions_set': exc_set,
                 'pattern': pattern,
                 'priority': len(key.replace(r'\w', ''))
             }
@@ -121,21 +127,19 @@ def preserve_case(match, replacement):
             
         return replacement.lower()
 
-def replace_yo_in_text(text, yo_dict):
+def replace_yo_in_text(text, sorted_yo_data):
     tag_pattern = re.compile(r'(<[^>]+>)')
-    sorted_data = sorted(yo_dict.values(), key=lambda x: (-x['priority'], str(x['pattern'])))
-    for data in sorted_data:
-        parts = tag_pattern.split(text)
-        for i in range(0, len(parts), 2):
-            if not parts[i].strip(): continue
+    parts = tag_pattern.split(text)
+    for i in range(0, len(parts), 2):
+        if not parts[i].strip(): continue
+        for data in sorted_yo_data:
             parts[i] = data['pattern'].sub(
-                lambda m: (
-                    m.group() if any(exc.search(remove_diacritics(m.group())) for exc in data['exceptions_compiled'])
-                    else f'<yorz class="highlight-yellow">{preserve_case(m, m.expand(data["replace"]))}</yorz>'
+                lambda m, d=data: (
+                    m.group() if remove_diacritics(m.group()).lower() in d['exceptions_set']
+                    else f'<yorz class="highlight-yellow">{preserve_case(m, m.expand(d["replace"]))}</yorz>'
                 ), parts[i]
             )
-        text = ''.join(parts)
-    return text
+    return ''.join(parts)
 
 def load_yo_variants(file_path):
     yo_variants = {}
@@ -288,81 +292,174 @@ def load_dict_with_exceptions(file_path):
             if len(parts) < 2: continue
             original, replacement = parts[0].strip(), parts[1].strip()
 
-            exc_patterns = []
+            exc_set = set()
             if rest:
                 exc_part = rest[0].split(')', 1)[0].strip()
                 for exc in exc_part.split(':'):
-                    exc = re.sub(r'\\(w[\*\+])', r'\\\1', exc.strip())
-                    try: exc_patterns.append(re.compile(fr'\b{exc}\b', re.I))
-                    except re.error: pass
-            replacements_dict[original] = {'replacement': replacement, 'exceptions': exc_patterns}
+                    exc_clean = exc.strip().lower()
+                    exc_set.add(exc_clean)
+
+            regex = None
+            fixed_replacement = replacement
+            if r'\w*' in original or r'\w+' in original:
+                pattern_parts = []
+                wildcard_groups = []
+                current_group = 1
+                for segment in re.split(r'(\\w[\*\+])', original):
+                    if segment in (r'\w*', r'\w+'):
+                        quant = '*' if segment == r'\w*' else '+'
+                        pattern_parts.append(f'([\\w\\u0300-\\u036F]{quant})')
+                        wildcard_groups.append(current_group)
+                        current_group += 1
+                    else:
+                        pattern_parts.append(re.escape(segment))
+                pattern_str = r'(?<![\w\u0300-\u036F])' + ''.join(pattern_parts) + r'(?![\w\u0300-\u036F])'
+
+                repl_parts = re.split(r'(\\w[\*\+])', replacement)
+                for j in range(1, len(repl_parts), 2):
+                    if repl_parts[j] in (r'\w*', r'\w+'):
+                        try: repl_parts[j] = f'\\{wildcard_groups.pop(0)}'
+                        except IndexError: break
+                fixed_replacement = ''.join(repl_parts)
+                try:
+                    regex = re.compile(pattern_str, re.I)
+                except re.error:
+                    pass
+            else:
+                escaped_original = re.escape(original).replace(r'\ ', r'\s+')
+                pattern_str = r'(?<![\w\u0300-\u036F])' + escaped_original + r'(?![\w\u0300-\u036F])'
+                try:
+                    regex = re.compile(pattern_str, re.I)
+                except re.error:
+                    pass
+
+            replacements_dict[original] = {'replacement': replacement, 'fixed_replacement': fixed_replacement, 'exceptions_set': exc_set, 'regex': regex}
     return replacements_dict
 
 def apply_replacements(text, replacements_dict, span_class):
     tag_pattern = re.compile(r'(<yorz[^>]*>.*?</yorz>|<[^>]+>)', re.IGNORECASE | re.DOTALL)
-    for original, data in replacements_dict.items():
-        replacement = data['replacement']
-        exceptions = data['exceptions']
-        
-        regex = None
-        if r'\w*' in original or r'\w+' in original:
-            pattern_parts = []
-            wildcard_groups = []
-            current_group = 1
-            for segment in re.split(r'(\\w[\*\+])', original):
-                if segment in (r'\w*', r'\w+'):
-                    quant = '*' if segment == r'\w*' else '+'
-                    pattern_parts.append(f'([\\w\\u0300-\\u036F]{quant})')
-                    wildcard_groups.append(current_group)
-                    current_group += 1
-                else:
-                    pattern_parts.append(re.escape(segment))
-            pattern_str = r'(?<![\w\u0300-\u036F])' + ''.join(pattern_parts) + r'(?![\w\u0300-\u036F])'
-
-            repl_parts = re.split(r'(\\w[\*\+])', replacement)
-            for j in range(1, len(repl_parts), 2):
-                if repl_parts[j] in (r'\w*', r'\w+'):
-                    try: repl_parts[j] = f'\\{wildcard_groups.pop(0)}'
-                    except IndexError: break
-            fixed_replacement = ''.join(repl_parts)
-            try:
-                regex = re.compile(pattern_str, re.I)
-            except re.error as e:
-                continue
-            
-            parts = tag_pattern.split(text)
-            for i in range(0, len(parts), 2):
-                if not parts[i].strip(): continue
-                parts[i] = regex.sub(
-                    lambda m: (
-                        m.group() if any(exc.search(remove_diacritics(m.group())) for exc in exceptions)
-                        else f'<yorz class="{span_class}">{preserve_case(m, m.expand(fixed_replacement))}</yorz>'
-                    ), parts[i]
-                )
-            text = ''.join(parts)
-        else:
-            escaped_original = re.escape(original).replace(r'\ ', r'\s+')
-            pattern = r'(?<![\w\u0300-\u036F])' + escaped_original + r'(?![\w\u0300-\u036F])'
-            try:
-                regex = re.compile(pattern, re.I)
-            except re.error as e:
-                continue
-            
-            parts = tag_pattern.split(text)
-            for i in range(0, len(parts), 2):
-                if not parts[i].strip(): continue
-                parts[i] = regex.sub(
-                    lambda m: (
-                        m.group() if any(exc.search(remove_diacritics(m.group())) for exc in exceptions)
-                        else f'<yorz class="{span_class}">{preserve_case(m, replacement)}</yorz>'
-                    ), parts[i]
-                )
-            text = ''.join(parts)
-            
-    return text
+    parts = tag_pattern.split(text)
+    for i in range(0, len(parts), 2):
+        if not parts[i].strip(): continue
+        for original, data in replacements_dict.items():
+            regex = data.get('regex')
+            if not regex: continue
+            parts[i] = regex.sub(
+                lambda m, d=data: (
+                    m.group() if remove_diacritics(m.group()).lower() in d['exceptions_set']
+                    else f'<yorz class="{span_class}">{preserve_case(m, m.expand(d["fixed_replacement"]))}</yorz>'
+                ), parts[i]
+            )
+    return ''.join(parts)
 
 from . import paths
 SHOULD_STOP = False
+
+def get_html_template(title, body_content):
+    return f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{title}</title>
+    <style>
+        body {{
+            background-color: #f0f2f5;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }}
+        .container {{
+            max-width: 900px;
+            width: 100%;
+        }}
+        .chapter-card {{
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            padding: 40px;
+            overflow-wrap: break-word;
+        }}
+        .chapter-card h1, .chapter-card h2, .chapter-card h3 {{
+            color: #1a73e8;
+            text-align: center;
+            margin-top: 0;
+            font-weight: 600;
+        }}
+        img {{
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 20px auto;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }}
+        p {{
+            margin: 0.8em 0;
+            text-align: justify;
+            font-size: 110%;
+        }}
+        a {{
+            color: #1a73e8;
+            text-decoration: none;
+            border-bottom: 1px dotted #1a73e8;
+        }}
+        a:hover {{
+            color: #0d47a1;
+            border-bottom-style: solid;
+        }}
+        .tooltip {{
+            position: relative;
+            display: inline-block;
+            border-bottom: 1px dotted #1a73e8;
+            color: #1a73e8;
+            cursor: help;
+        }}
+        .tooltip .tooltiptext {{
+            visibility: hidden;
+            width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 10px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -125px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.85em;
+            line-height: 1.4;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            pointer-events: none;
+        }}
+        .tooltip:hover .tooltiptext {{
+            visibility: visible;
+            opacity: 1;
+        }}
+        .highlight-yellow {{ background-color: #fff176; padding: 2px 0; border-radius: 3px; }}
+        .highlight-green {{ background-color: #a5d6a7; padding: 2px 0; border-radius: 3px; }}
+        .highlight-blue {{ background-color: #90caf9; padding: 2px 0; border-radius: 3px; }}
+        .highlight-orange {{ background-color: #ffcc80; padding: 2px 0; border-radius: 3px; }}
+        
+        @media (max-width: 600px) {{
+            body {{ padding: 10px; }}
+            .chapter-card {{ padding: 20px; border-radius: 8px; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        {body_content}
+    </div>
+</body>
+</html>"""
 
 def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_file=None, output_file=None, yo_dict_file=None, yo_variant_file=None, app_version=None):
     if regular_file is None: regular_file = paths.get_path("dictionaries/green.dic")
@@ -374,7 +471,6 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
     SHOULD_STOP = False
     import builtins
     import json
-    import os
     
     # Сохраняем сессию в ту же папку, где находится исходный файл
     session_file = os.path.join(os.path.dirname(os.path.abspath(input_file)), f".{os.path.basename(input_file)}.yorz_session")
@@ -402,6 +498,7 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
                 if os.path.exists(tmp_epub): os.remove(tmp_epub)
 
     yo_dict = load_yo_dict(yo_dict_file)
+    sorted_yo_data = sorted(yo_dict.values(), key=lambda x: (-x['priority'], str(x['pattern'])))
     yo_variants = load_yo_variants(yo_variant_file)
 
     yo_no_regular_dict = load_dict_with_exceptions(yo_no_regular_file) if os.path.exists(yo_no_regular_file) else {}
@@ -429,7 +526,7 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
         if SHOULD_STOP: raise KeyboardInterrupt()
         text_chunk = process_yo_variants(text_chunk, yo_variants, replace_all_choices, global_line_offset)
         if SHOULD_STOP: raise KeyboardInterrupt()
-        text_chunk = replace_yo_in_text(text_chunk, yo_dict)
+        text_chunk = replace_yo_in_text(text_chunk, sorted_yo_data)
         return text_chunk
 
     is_epub = input_file.lower().endswith('.epub')
@@ -447,6 +544,49 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
         html_contents = session_data.get('html_contents', [])
         mode = 'w' if start_idx == 0 else 'a'
         
+        # Пре-сканирование для Base64 и сносок (для HTML-превью)
+        images_base64 = {}
+        epub_notes = {}
+        try:
+            with zipfile.ZipFile(input_file, 'r') as zin:
+                for info in zin.infolist():
+                    fname = info.filename.lower()
+                    if fname.endswith(('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp')):
+                        try:
+                            img_data = zin.read(info.filename)
+                            mime_type, _ = mimetypes.guess_type(info.filename)
+                            if not mime_type:
+                                if fname.endswith('.svg'): mime_type = 'image/svg+xml'
+                                else: mime_type = 'image/jpeg'
+                            b64_data = base64.b64encode(img_data).decode('utf-8')
+                            images_base64[info.filename] = f"data:{mime_type};base64,{b64_data}"
+                        except: pass
+                    elif fname.endswith(('.html', '.xhtml', '.htm')):
+                        # Предварительный сбор всех ID для сносок в EPUB
+                        try:
+                            content = zin.read(info.filename).decode('utf-8')
+                            # Ищем все элементы с ID, которые могут быть сносками (обычно внизу страницы)
+                            for match in re.finditer(r'<(?:div|p|section|aside)[^>]*?\bid=["\']([^"\']+)["\'][^>]*>(.*?)</(?:div|p|section|aside)>', content, re.IGNORECASE | re.DOTALL):
+                                note_id = match.group(1)
+                                note_body = re.sub(r'<[^>]+>', ' ', match.group(2))
+                                note_body = re.sub(r'\s+', ' ', note_body).strip()
+                                if note_body:
+                                    epub_notes[note_id] = note_body
+                        except: pass
+        except: pass
+
+        def fix_epub_img_paths(html_content, current_file_path, images_map):
+            import posixpath
+            import urllib.parse
+            def replacer(match):
+                src = match.group(1)
+                abs_path = posixpath.normpath(posixpath.join(posixpath.dirname(current_file_path), src))
+                decoded_path = urllib.parse.unquote(abs_path)
+                if decoded_path in images_map: return f'src="{images_map[decoded_path]}"'
+                if abs_path in images_map: return f'src="{images_map[abs_path]}"'
+                return match.group(0)
+            return re.sub(r'src=["\'](.*?)["\']', replacer, html_content, flags=re.IGNORECASE)
+
         print(f"{Fore.CYAN}Чтение и обработка EPUB архива...{Style.RESET_ALL}")
         try:
             with zipfile.ZipFile(input_file, 'r') as zin:
@@ -464,13 +604,30 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
                                 text_content = content.decode('utf-8')
                                 processed = process_text_chunk(text_content)
                                 
-                                # For HTML version: extract body
-                                import re
+                                # For HTML version: extract body and wrap in a card
                                 body_match = re.search(r'<body[^>]*>(.*?)</body>', processed, re.IGNORECASE | re.DOTALL)
                                 if body_match:
-                                    html_contents.append(body_match.group(1))
+                                    chapter_body = body_match.group(1)
                                 else:
-                                    html_contents.append(processed)
+                                    chapter_body = processed
+                                
+                                # Fix images for HTML preview
+                                chapter_body = fix_epub_img_paths(chapter_body, item.filename, images_base64)
+                                
+                                # Make EPUB footnotes as tooltips if possible, otherwise jumpable
+                                def epub_link_replacer(match):
+                                    href_attr = match.group(1)
+                                    text = match.group(2)
+                                    if '#' in href_attr:
+                                        note_id = href_attr.split('#', 1)[1]
+                                        if note_id in epub_notes and len(epub_notes[note_id]) > 5:
+                                            return f'<span class="tooltip">{text}<span class="tooltiptext">{epub_notes[note_id]}</span></span>'
+                                        return f'<a href="#{note_id}">{text}</a>'
+                                    return match.group(0)
+                                chapter_body = re.sub(r'<a[^>]*?\bhref=["\']([^"\']+)["\'][^>]*>(.*?)</a>', epub_link_replacer, chapter_body, flags=re.IGNORECASE | re.DOTALL)
+
+                                if chapter_body.strip():
+                                    html_contents.append(f'<div class="chapter-card">{chapter_body}</div>')
                                 
                                 # For EPUB version: clean up yorz tags
                                 clean_epub_text = re.sub(r'</?yorz[^>]*>', '', processed)
@@ -514,13 +671,10 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
             os.rename(tmp_epub, output_epub)
 
             full_html_body = "\n".join(html_contents)
-            import re
             full_html_body = re.sub(r'<(/?)yorz', r'<\1span', full_html_body)
-            base_name = os.path.splitext(os.path.basename(input_file))[0]
+            
             with open(output_html, 'w', encoding='utf-8') as f:
-                f.write(f"""<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml">\n<head>\n<title>{base_name}</title>\n<style>\nhtml {{color: #000000; background-color: #FFFAFA;}}\nbody {{text-align : justify }}\np {{text-indent: 2em;  margin-bottom: 0em; margin-top: 0em; font-size : 110%; font-style : normal; font-weight : bold;}}\n.highlight-yellow {{ background-color: yellow; }}\n.highlight-green {{ background-color: lightgreen; }}\n.highlight-blue {{ background-color: lightblue; }}\n.highlight-orange {{ background-color: orange; }}\n</style>\n</head>\n<body>\n""")
-                f.write(full_html_body)
-                f.write("\n</body>\n</html>")
+                f.write(get_html_template(base_name, full_html_body))
 
             if os.path.exists(session_file):
                 os.remove(session_file)
@@ -555,7 +709,6 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
 
     if is_fb2:
         print(f"{Fore.CYAN}Извлечение текста из FB2 и обработка...{Style.RESET_ALL}")
-        import re
         # Разделяем на части, захватывая нужные теги целиком. Указываем точные закрывающие теги для каждого, 
         # чтобы <title> не обрывался на первом встретившемся </p> внутри него. И используем (?=[\s>/]) вместо \b
         parts = re.split(r'(<p(?=[\s>/])[^>]*>.*?</p>|<v(?=[\s>/])[^>]*>.*?</v>|<text-author(?=[\s>/])[^>]*>.*?</text-author>|<subtitle(?=[\s>/])[^>]*>.*?</subtitle>|<title(?=[\s>/])[^>]*>.*?</title>|<empty-line(?=[\s>/])[^>]*>.*?</empty-line>|<empty-line(?=[\s>/])[^>]*/>)', text_content, flags=re.IGNORECASE | re.DOTALL)
@@ -613,7 +766,6 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
             raise
 
     full_processed_text = ('' if is_fb2 else '\n').join(html_contents)
-    import re
     import datetime
 
     # Сохраняем чистую версию (убираем временные теги yorz)
@@ -621,23 +773,22 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
     
     today_str = datetime.date.today().isoformat()
     if is_fb2:
-        # Ищем существующую метку в истории
-        meta_pattern = re.compile(r'<p>.*?(Текст обработан программой YoRZ 2\.0 \(.*?\))</p>')
-        match = meta_pattern.search(clean_text)
-        current_meta = match.group(1) if match else ""
+        # Ищем существующую метку в истории (быстрый поиск без тяжелых регулярок)
+        meta_match = re.search(r'<p>[^<]*(Текст обработан программой YoRZ 2\.0 \([^)]*\))</p>', clean_text[:15000]) or re.search(r'<p>[^<]*(Текст обработан программой YoRZ 2\.0 \([^)]*\))</p>', clean_text)
+        current_meta = meta_match.group(1) if meta_match else ""
         new_meta_str = paths.update_metadata(current_meta, "Ёфикатор", app_version)
         
         history_entry = f'<p>{today_str}: {new_meta_str}</p>'
-        if match:
-            clean_text = clean_text.replace(match.group(0), history_entry)
-        elif '</history>' in clean_text:
-            clean_text = clean_text.replace('</history>', f'\n{history_entry}\n</history>')
-        elif '</document-info>' in clean_text:
+        if meta_match:
+            clean_text = clean_text.replace(meta_match.group(0), history_entry)
+        elif '</history>' in clean_text[:15000] or '</history>' in clean_text:
+            clean_text = clean_text.replace('</history>', f'\n{history_entry}\n</history>', 1)
+        elif '</document-info>' in clean_text[:15000] or '</document-info>' in clean_text:
             meta_tag = f'\n<history>\n{history_entry}\n</history>\n'
-            clean_text = clean_text.replace('</document-info>', meta_tag + '</document-info>')
-        elif '</description>' in clean_text:
+            clean_text = clean_text.replace('</document-info>', meta_tag + '</document-info>', 1)
+        elif '</description>' in clean_text[:15000] or '</description>' in clean_text:
             meta_tag = f'\n<document-info>\n<history>\n{history_entry}\n</history>\n</document-info>\n'
-            clean_text = clean_text.replace('</description>', meta_tag + '</description>')
+            clean_text = clean_text.replace('</description>', meta_tag + '</description>', 1)
     else:
         # Ищем существующую метку в MD или TXT
         if is_md:
@@ -663,42 +814,100 @@ def replace_expressions(input_file="book.txt", regular_file=None, yo_no_regular_
         f.write(clean_text)
 
     # Сохраняем HTML версию с подсветкой
-    highlighted_text = re.sub(r'<(/?)yorz', r'<\1span', full_processed_text)
-    
     if is_fb2:
-        # Для предпросмотра FB2 делаем простую замену тегов на HTML аналоги
-        preview_html = highlighted_text
-        # Заголовки глав
-        preview_html = re.sub(r'<title(?=[\s>/])[^>]*>(.*?)</title>', r'<h3 style="text-align:center; color:#8b0000; margin-top:2em; border-bottom:1px solid #ccc;">\1</h3>', preview_html, flags=re.IGNORECASE | re.DOTALL)
-        # Подзаголовки
-        preview_html = re.sub(r'<subtitle(?=[\s>/])[^>]*>(.*?)</subtitle>', r'<h4 style="text-align:center; color:#555;">\1</h4>', preview_html, flags=re.IGNORECASE | re.DOTALL)
-        # Абзацы
-        preview_html = re.sub(r'<p(?=[\s>/])[^>]*>(.*?)</p>', r'<p style="text-indent:2em; margin:0.5em 0;">\1</p>', preview_html, flags=re.IGNORECASE | re.DOTALL)
-        # Стихи/цитаты
-        preview_html = re.sub(r'<v(?=[\s>/])[^>]*>(.*?)</v>', r'<p style="font-style:italic; text-align:center; margin:0.2em 0;">\1</p>', preview_html, flags=re.IGNORECASE | re.DOTALL)
-        # Пустые строки
-        preview_html = re.sub(r'<empty-line(?=[\s>/])[^>]*/>', r'<br/><br/>', preview_html, flags=re.IGNORECASE)
+        # Extract images from FB2 for HTML preview
+        fb2_images = {}
+        for img_match in re.finditer(r'<binary[^>]*?\bid=["\']([^"\']+)["\'][^>]*>([^<]+)</binary>', text_content, re.IGNORECASE):
+            img_id = img_match.group(1)
+            img_data_b64 = re.sub(r'\s+', '', img_match.group(2))
+            mime_type = "image/jpeg"
+            if img_id.lower().endswith('.png'): mime_type = "image/png"
+            elif img_id.lower().endswith('.gif'): mime_type = "image/gif"
+            fb2_images[img_id] = f"data:{mime_type};base64,{img_data_b64}"
+
+        # Extract footnotes for tooltips
+        fb2_notes = {}
+        for note_match in re.finditer(r'<section[^>]*?\bid=["\']([^"\']+)["\'][^>]*>(.*?)</section>', text_content, re.IGNORECASE | re.DOTALL):
+            note_id = note_match.group(1)
+            note_content = re.sub(r'<title[^>]*>.*?</title>', '', note_match.group(2), flags=re.IGNORECASE | re.DOTALL)
+            note_content = re.sub(r'<[^>]+>', ' ', note_content)
+            note_content = re.sub(r'\s+', ' ', note_content).strip()
+            fb2_notes[note_id] = note_content
+
+        # Extract cover image from description before removing it
+        cover_img_html = ""
+        cover_match = re.search(r'<coverpage[^>]*>.*?<image[^>]*?\b(?:l:|xlink:)?href=["\']#([^"\']+)["\'][^>]*>', text_content, re.IGNORECASE | re.DOTALL)
+        if cover_match:
+            cover_id = cover_match.group(1)
+            if cover_id in fb2_images:
+                cover_img_html = f'<img src="{fb2_images[cover_id]}" style="width:100%; max-width:100%; height:auto; margin: 0 auto 30px auto;" />'
+
+        joined_html = "".join(html_contents)
         
-        # Пересоберем body только из нужных нам элементов, чтобы не было мусора от метаданных и бинарных данных
-        # Извлекаем все наши h3, h4, p и br
-        final_parts = []
-        for m in re.finditer(r'<(p|h3|h4)(?=[\s>/])[^>]*>.*?</\1>|<br\s*/?>', preview_html, flags=re.IGNORECASE | re.DOTALL):
-            final_parts.append(m.group(0))
+        # Убираем техническую информацию (метаданные) и секции с бинарниками из итогового HTML
+        joined_html = re.sub(r'<description[^>]*>.*?</description>', '', joined_html, flags=re.IGNORECASE | re.DOTALL)
+        joined_html = re.sub(r'<binary[^>]*>[^<]*</binary>', '', joined_html, flags=re.IGNORECASE)
+        
+        # Вставляем обложку в самое начало
+        if cover_img_html:
+            joined_html = cover_img_html + joined_html
+        
+        # Apply yo highlights
+        joined_html = re.sub(r'<(/?)yorz', r'<\1span', joined_html)
+        
+        # Simple tag replacement for FB2
+        joined_html = re.sub(r'<title(?=[\s>/])[^>]*>(.*?)</title>', r'<h3>\1</h3>', joined_html, flags=re.IGNORECASE | re.DOTALL)
+        joined_html = re.sub(r'<subtitle(?=[\s>/])[^>]*>(.*?)</subtitle>', r'<h4>\1</h4>', joined_html, flags=re.IGNORECASE | re.DOTALL)
+        joined_html = re.sub(r'<p(?=[\s>/])[^>]*>(.*?)</p>', r'<p>\1</p>', joined_html, flags=re.IGNORECASE | re.DOTALL)
+        joined_html = re.sub(r'<v(?=[\s>/])[^>]*>(.*?)</v>', r'<p style="font-style:italic; text-align:center;">\1</p>', joined_html, flags=re.IGNORECASE | re.DOTALL)
+        joined_html = re.sub(r'<empty-line(?=[\s>/])[^>]*/>', r'<br/><br/>', joined_html, flags=re.IGNORECASE)
+        
+        # Fix images in FB2
+        def fb2_img_replacer(match):
+            href = match.group(1)
+            if href.startswith('#'):
+                img_id = href[1:]
+                if img_id in fb2_images:
+                    return f'<img src="{fb2_images[img_id]}" />'
+            return match.group(0)
+        joined_html = re.sub(r'<image[^>]*?\b(?:l:|xlink:)?href=["\']([^"\']+)["\'][^>]*>(?:\s*</image>)?', fb2_img_replacer, joined_html, flags=re.IGNORECASE)
+
+        # Footnotes tooltips
+        def fb2_note_replacer(match):
+            href = match.group(1)
+            text = match.group(2)
+            if href.startswith('#'):
+                note_id = href[1:]
+                if note_id in fb2_notes and fb2_notes[note_id]:
+                    return f'<span class="tooltip">{text}<span class="tooltiptext">{fb2_notes[note_id]}</span></span>'
+            return match.group(0)
+        joined_html = re.sub(r'<a[^>]*?\b(?:l:|xlink:)?href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', fb2_note_replacer, joined_html, flags=re.IGNORECASE | re.DOTALL)
+
+        # Split into cards
+        cards = re.split(r'(<h3>)', joined_html)
+        final_preview_parts = []
+        
+        if cards[0].strip():
+            final_preview_parts.append(f'<div class="chapter-card">{cards[0]}</div>')
             
-        preview_html = '\n'.join(final_parts) if final_parts else "Ошибка генерации предпросмотра."
+        for i in range(1, len(cards), 2):
+            card_content = cards[i] + (cards[i+1] if i+1 < len(cards) else "")
+            if card_content.strip():
+                final_preview_parts.append(f'<div class="chapter-card">{card_content}</div>')
+                
+        preview_html = '\n'.join(final_preview_parts) if final_preview_parts else "Ошибка генерации предпросмотра."
     else:
+        highlighted_text = re.sub(r'<(/?)yorz', r'<\1span', full_processed_text)
         html_body = []
         for line in highlighted_text.split('\n'):
             if line.strip(): html_body.append(f"<p>{line}</p>")
             else: html_body.append("<p>&nbsp;</p>")
-        preview_html = '\n'.join(html_body)
+        preview_html = f'<div class="chapter-card">{"".join(html_body)}</div>'
 
     base_name = os.path.splitext(os.path.basename(input_file))[0]
 
     with open(output_html, 'w', encoding='utf-8') as f:
-        f.write(f"""<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml">\n<head>\n<title>{base_name}</title>\n<style>\nhtml {{color: #000000; background-color: #FFFAFA;}}\nbody {{text-align : justify }}\np {{text-indent: 2em;  margin-bottom: 0em; margin-top: 0em; font-size : 110%; font-style : normal; font-weight : bold;}}\n.highlight-yellow {{ background-color: yellow; }}\n.highlight-green {{ background-color: lightgreen; }}\n.highlight-blue {{ background-color: lightblue; }}\n.highlight-orange {{ background-color: orange; }}\n</style>\n</head>\n<body>\n""")
-        f.write(preview_html)
-        f.write("\n</body>\n</html>")
+        f.write(get_html_template(base_name, preview_html))
         
     if os.path.exists(session_file):
         os.remove(session_file)
