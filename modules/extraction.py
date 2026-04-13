@@ -85,15 +85,13 @@ def run(input_filename="book.txt"):
         except Exception as e:
             print(f"{Fore.RED}Ошибка при работе с EPUB архивом: {e}{Style.RESET_ALL}")
             return
-    elif ext == 'fb2':
+    if ext == 'fb2':
         with open(input_filename, 'r', encoding="utf-8", errors='ignore') as f:
             content = f.read()
         text = re.sub(r'<[^>]+>', ' ', content).lower()
     else:
         with open(input_filename, encoding="utf-8", errors='ignore') as f:
             text = f.read().lower()
-
-    text = remove_diacritics(text)
 
     try:
         raw_roots = load_lines(paths.get_path("dictionaries/yellow_root.txt"))
@@ -107,14 +105,42 @@ def run(input_filename="book.txt"):
         r_variant = r.replace("ё", "е")
         roots_tuples.append((r, r_variant))
 
-    words = extract_words(text)
+    import time
+    # Добавляем обновление прогресс-бара
+    def update_prog(percent):
+        import builtins
+        if hasattr(builtins, 'gui_update_progress'):
+            builtins.gui_update_progress(percent)
+            # Даем GUI крошечную паузу, чтобы он успел отрисовать изменения
+            time.sleep(0.001)
+            
+    update_prog(0.01) # Сразу показываем начало работы
 
+    print(f"{Fore.CYAN}Извлечение уникальных слов из текста...{Style.RESET_ALL}")
+    all_words = extract_words(text)
+    unique_words = list(set(all_words))
+    total_unique = len(unique_words)
+    
     extracted_set = set()
-    for word in words:
+    
+    print(f"{Fore.CYAN}Анализ слов по корням ({total_unique} уникальных слов)...{Style.RESET_ALL}")
+    
+    # Объединяем очистку диакритики и проверку корней в один цикл для точного прогресса
+    for i, word in enumerate(unique_words):
+        # Обновляем прогресс каждые 200 слов (чаще, чем было)
+        if i % 200 == 0:
+            update_prog(i / total_unique)
+            
+        # Сначала очищаем от диакритики
+        clean_word = remove_diacritics(word)
+        
+        # Затем проверяем по корням
         for r, r_variant in roots_tuples:
-            if matches_condition(word, r, r_variant):
-                extracted_set.add(word)
+            if matches_condition(clean_word, r, r_variant):
+                extracted_set.add(clean_word)
                 break
+                
+    update_prog(1.0)
 
     try:
         exclude_words = set(load_lines(paths.get_path("dictionaries/yellow_base.txt")))
@@ -144,11 +170,11 @@ def run(input_filename="book.txt"):
     final_words = extracted_set - exclude_words
 
     try:
-        blacklist_words = set(load_lines(paths.get_path("dictionaries/blacklist.txt")))
-        excluded_count = len(final_words.intersection(blacklist_words))
-        final_words -= blacklist_words
+        ignore_words = set(load_lines(paths.get_path("dictionaries/.ignore")))
+        excluded_count = len(final_words.intersection(ignore_words))
+        final_words -= ignore_words
         if excluded_count > 0:
-            print(f"{Fore.YELLOW}Применена фильтрация по dictionaries/blacklist.txt. Исключено слов: {excluded_count}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Применена фильтрация по dictionaries/.ignore. Исключено слов: {excluded_count}{Style.RESET_ALL}")
     except FileNotFoundError:
         pass
 
@@ -162,25 +188,25 @@ def run(input_filename="book.txt"):
     base_name, _ = os.path.splitext(os.path.basename(input_filename))
     output_filename = os.path.join(base_dir, f"{base_name}_extraction.txt")
 
-    for_blacklist = []
+    for_ignore = []
     with open(output_filename, "w", encoding="utf-8") as f:
         for word in sorted_words:
             alts = generate_alternatives(word)
             if any(alt in exclude_words for alt in alts):
                 f.write(f"{word} (!)\n")
-                for_blacklist.append(word)
+                for_ignore.append(word)
             else:
                 f.write(word + "\n")
 
-    for_blacklist_filename = os.path.join(base_dir, "for_blacklist.txt")
-    with open(for_blacklist_filename, "w", encoding="utf-8") as f:
-        for word in for_blacklist:
-            f.write(word + "\n")
-    
-    if for_blacklist:
-        print(f"{Fore.CYAN}Слова для blacklist сохранены в: {for_blacklist_filename}{Style.RESET_ALL}")
+    for_ignore_filename = os.path.join(base_dir, "for_ignore.txt")
+    if for_ignore:
+        with open(for_ignore_filename, "w", encoding="utf-8") as f:
+            for word in for_ignore:
+                f.write(word + "\n")
+        print(f"{Fore.CYAN}Слова для .ignore сохранены в: {for_ignore_filename} ({len(for_ignore)} слов){Style.RESET_ALL}")
 
-    print(f"{Fore.GREEN}Извлечение слов завершено. Результат сохранён в: {output_filename}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Извлечение слов завершено. Извлечено новых слов: {len(sorted_words)}.{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Результат сохранён в: {output_filename}{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     run()
