@@ -269,6 +269,60 @@ def verify_orange_dic_in_base():
     except Exception as e:
         print(f"[SYNC ERROR] Ошибка при проверке orange.dic: {e}")
 
+def rebuild_ignore(progress_callback=None):
+    """
+    Формирует .ignore заново на основе yellow_base.txt.
+    Извлекает слова с 'ё', меняет 'ё' на 'е' и записывает в .ignore.
+    Слова, находящиеся в orange.dic слева от разделителя '|', исключаются.
+    """
+    if progress_callback:
+        progress_callback("Обновление .ignore...")
+    
+    base_path = get_path("dictionaries/yellow_base.txt")
+    ignore_path = get_path("dictionaries/.ignore")
+    orange_path = get_path("dictionaries/orange.dic")
+    
+    if not os.path.exists(base_path):
+        print(f"[SYNC ERROR] Не удалось найти yellow_base.txt для пересборки .ignore.")
+        return False
+        
+    try:
+        # Извлекаем слова из левой части orange.dic
+        orange_left_words = set()
+        if os.path.exists(orange_path):
+            with open(orange_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    clean_line = line.strip()
+                    if '|' in clean_line and not clean_line.startswith('#'):
+                        left_word = clean_line.split('|', 1)[0].strip()
+                        orange_left_words.add(left_word.lower())
+
+        ignore_words = set()
+        with open(base_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                word = line.strip()
+                if not word or word.startswith('#'):
+                    continue
+                
+                if 'ё' in word.lower():
+                    # Заменяем ё на е (сохраняя регистр, если это возможно, но обычно в базе нижний регистр)
+                    deyo_word = word.replace('ё', 'е').replace('Ё', 'Е')
+                    # Исключаем слова, которые являются омографами (находятся в orange.dic)
+                    if deyo_word.lower() not in orange_left_words:
+                        ignore_words.add(deyo_word)
+        
+        if ignore_words:
+            with open(ignore_path, 'w', encoding='utf-8') as f:
+                f.write("# --- Сформировано автоматически из yellow_base.txt ---\n")
+                for word in sorted(list(ignore_words)):
+                    f.write(word + '\n')
+            print(f"[SYNC] .ignore успешно обновлен ({len(ignore_words)} слов).")
+            return True
+        return False
+    except Exception as e:
+        print(f"[SYNC ERROR] Ошибка при пересборке .ignore: {e}")
+        return False
+
 def sync_dictionaries_from_github(progress_callback=None):
     """
     Скачивает актуальные словари с GitHub и сливает их с пользовательскими.
@@ -277,7 +331,7 @@ def sync_dictionaries_from_github(progress_callback=None):
     repo_url = "https://raw.githubusercontent.com/zapeko/YoRZ/main/dictionaries/"
     files_to_sync = [
         "yellow_root.txt", "yellow_base.txt", "yellow_add.txt", 
-        "blacklist.txt", "yellow.dic", "green.dic", "blue.dic", "orange.dic"
+        ".ignore", "yellow.dic", "green.dic", "blue.dic", "orange.dic"
     ]
     
     temp_dir = os.path.join(USER_DATA_DIR, "temp_sync")
@@ -303,7 +357,7 @@ def sync_dictionaries_from_github(progress_callback=None):
                 
                 print(f"[SYNC] Успешно скачан {filename} во временную папку.")
                 # Выполняем умное слияние загруженного файла с локальным
-                if filename.endswith('.txt'):
+                if filename.endswith('.txt') or filename == ".ignore":
                     merge_text_files(temp_file, dest_file)
                 elif filename.endswith('.dic'):
                     merge_dic_files(temp_file, dest_file)
@@ -314,6 +368,7 @@ def sync_dictionaries_from_github(progress_callback=None):
                 
         if success_count > 0:
             verify_orange_dic_in_base()
+            rebuild_ignore(progress_callback)
             if progress_callback:
                 progress_callback("Синхронизация успешно завершена!")
             return True
