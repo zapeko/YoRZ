@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from modules import paths
 
 # Версия программы (обновляйте здесь при выпуске новой версии)
-APP_VERSION = "2.1.2"
+APP_VERSION = "2.2.0"
 
 # Быстрая проверка при запуске (только копирование недостающих файлов)
 paths.ensure_user_data_exists()
@@ -36,8 +36,8 @@ from modules import twin
 from modules import yellow_dic_forming
 
 DEFAULT_SETTINGS = {
-    "theme": "Dark",
-    "console_font_size": 20,
+    "theme": "Aquamarine",
+    "console_font_size": 22,
     "highlight_alpha": 20,
     "console_font_family": "Consolas",
     "console_font_style": "normal",
@@ -45,14 +45,16 @@ DEFAULT_SETTINGS = {
     "typo_html_nbsp": True,
     "typo_nbsp": True,
     "typo_shy": True,
-    "typo_spaces": True,
-    "typo_letter_digit_spaces": True,
+    "typo_spaces": False,
+    "typo_letter_digit_spaces": False,
     "typo_punctuation": True,
     "typo_dashes": True,
-    "typo_merge_lines": True,
+    "typo_merge_lines": False,
     "typo_keep_leading_dashes": False,
     "typo_remove_all_empty": False,
-    "typo_deyo": False
+    "typo_deyo": True,
+    "sync_on_extraction": True,
+    "combine_processes": False
 }
 
 def load_settings():
@@ -86,7 +88,7 @@ SETTINGS = load_settings()
 
 # Устанавливаем тему из настроек
 appearance_mode = SETTINGS["theme"]
-if appearance_mode == "Aquamarine":
+if appearance_mode in ["Aquamarine", "Thistle"]:
     ctk.set_appearance_mode("Dark")
 else:
     ctk.set_appearance_mode(appearance_mode)
@@ -200,15 +202,13 @@ TOOLS_CONFIG = {
 
 Результат: Файл `_extraction.txt` со словами, которых ещё нет в базе yellow_base.txt. Проверьте слова и расставьте букву "ё", где требуется. Слова помеченные (!) требуют особого внимания, так как в базе есть аналоги этих слов с буквой "ё" вместо "е" или с буквой "е" вместо "ё". В таких случаях, если слово неверное в таком написании, то его удалить. Если верное и имеет другой смысл, то оставить. После проверки скопировать все слова и добавить в базу `yellow_base.txt`.
 
-Для удобства, вместе с файлом `_extraction.txt` создаётся файл `for_blacklist.txt`, который содержит слова помеченные (!) в `_extraction.txt`. После проверки добавьте эти слова в `blacklist.txt`, и запустите инструмент "Извлечение слов" ещё раз.
+Для удобства, вместе с файлом `_extraction.txt` создаётся файл `for_ignore.txt`, который содержит слова помеченные (!) в `_extraction.txt`. После проверки добавьте эти слова в `.ignore`, и запустите инструмент "Извлечение слов" ещё раз.
 
 \x1b[33mШаг 3: Сортировка (Инструмент: "Сортировка базы")\x1b[0m
 ---------------------------------------------------
 Инструмент сортирует слова в файле `yellow_base.txt` по алфавиту и удаляет любые дубликаты. Это ускоряет работу программы и избавляет базу от мусора, который мог появиться на предыдущем шаге при ручном добавлении слов.
 
 Результат: Файл `yellow_base.txt` будет перезаписан отсортированными данными.
-
-Этим же инструментом можно отсортировать слова в `blacklist.txt`.
 
 \x1b[33mШаг 4: Поиск омографов (Инструмент: "Поиск омографов")\x1b[0m
 --------------------------------------------------------
@@ -246,11 +246,10 @@ TOOLS_CONFIG = {
         "desc": "Извлекает неизвестные слова из текста для пополнения базы словарей.\n\nВход: Выбранный файл (.txt, .md, .fb2 или .epub)\nРезультат: Файл с суффиксом _extraction.txt.\n\nВНИМАНИЕ: Требуется ручная проверка файла! Расставьте букву «ё» там, где это необходимо, и добавьте слова в базу yellow_base.txt."
     },
     "sorting": {
-        "name": "Сортировка базы",
-        "needs_file": True,
-        "desc": "Сортирует слова по алфавиту и удаляет дубликаты в базе словаря.\n\nВход: Выбранный файл (yellow_base.txt или blacklist.txt)\nРезультат: Выбранный файл автоматически перезаписывается отсортированными данными."
-    },
-    "twin": {
+    "name": "Сортировка базы",
+    "needs_file": False,
+    "desc": "Сортирует слова по алфавиту и удаляет дубликаты в базе словаря.\n\nВход: Автоматически сканирует yellow_base.txt (выбор файла не требуется).\nРезультат: Выбранный файл автоматически перезаписывается отсортированными данными."
+    },    "twin": {
         "name": "Поиск омографов",
         "needs_file": False,
         "desc": "Ищет пары слов-омографов (слова, которые пишутся одинаково без «ё», но имеют разный смысл, например: все/всё).\n\nВход: Автоматически сканирует yellow_base.txt (выбор файла не требуется).\nРезультат: Автоматически дописывает новые пары в словарь омографов orange.dic под заголовком # --- Добавлено автоматически ---."
@@ -259,6 +258,11 @@ TOOLS_CONFIG = {
         "name": "Сборка словаря",
         "needs_file": False,
         "desc": "Собирает финальный рабочий словарь yellow.dic из корней (yellow_root.txt), базы (yellow_base.txt) и дополнений (yellow_add.txt).\n\nВход: Файлы yellow_root.txt, yellow_base.txt, yellow_add.txt (выбор файла не требуется).\nРезультат: Обновлённый файл yellow.dic, который сразу готов к использованию при ёфикации."
+    },
+    "combo": {
+        "name": "Комбо x3",
+        "needs_file": False,
+        "desc": "Объединяет три инструмента: Сортировку базы, Поиск омографов и Сборку словаря. Они выполняются последовательно в автоматическом режиме.\n\nВход: Автоматически сканирует нужные файлы.\nРезультат: Отсортированная база, пополненный словарь омографов и собранный yellow.dic."
     },
     "yorz": {
         "name": "Ёфикация текста",
@@ -324,7 +328,8 @@ class App(ctk.CTk):
         # --- Боковая панель ---
         self.sidebar_frame = ctk.CTkFrame(self, width=280, corner_radius=0)
         self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(8, weight=1)
+        # Row 9 will be the expandable spacer row
+        self.sidebar_frame.grid_rowconfigure(9, weight=1)
 
         self.logo_label = ctk.CTkLabel(self.sidebar_frame, text=f"YoRZ v{APP_VERSION}", font=self.logo_font)
         self.logo_label.grid(row=0, column=0, padx=20, pady=(30, 40))
@@ -346,6 +351,8 @@ class App(ctk.CTk):
             pady = (5, 25) if tool_id == "guide" else 5
             btn.grid(row=i+1, column=0, padx=20, pady=pady, sticky="ew")
             self.sidebar_btns[tool_id] = btn
+            
+        self.update_sidebar_visibility()
 
         # Словари
         self.btn_open_dict = ctk.CTkButton(
@@ -528,20 +535,50 @@ class App(ctk.CTk):
             self.typo_checkboxes.append(cb)
             self.tooltips.append(ToolTip(cb, tooltip_text))
 
+        # Настройки синхронизации
+        sync_frame = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
+        sync_frame.pack(anchor="w", pady=(20, 20), fill="x")
+        ctk.CTkLabel(sync_frame, text="Прочие настройки:", font=self.bold_font).pack(anchor="w", pady=(0, 10))
+
+        self.var_sync_on_extraction = ctk.BooleanVar(value=SETTINGS.get("sync_on_extraction", True))
+        self.cb_sync_on_extraction = ctk.CTkCheckBox(
+            sync_frame, 
+            text="Синхронизировать словари перед извлечением слов", 
+            variable=self.var_sync_on_extraction, 
+            font=self.main_font, 
+            cursor="hand2", 
+            command=self.save_general_settings
+        )
+        self.cb_sync_on_extraction.pack(anchor="w", padx=10, pady=(10, 5))
+        self.tooltips.append(ToolTip(self.cb_sync_on_extraction, "Если включено, при нажатии кнопки «Запустить» в инструменте «Извлечение слов» программа сначала выполнит онлайн-синхронизацию словарей и сформирует актуальный файл .ignore (список слов для игнорирования)."))
+
+        self.var_combine_processes = ctk.BooleanVar(value=SETTINGS.get("combine_processes", False))
+        self.cb_combine_processes = ctk.CTkCheckBox(
+            sync_frame,
+            text="Объединить процессы обработки (3 в 1)",
+            variable=self.var_combine_processes,
+            font=self.main_font,
+            cursor="hand2",
+            command=self.save_general_settings
+        )
+        self.cb_combine_processes.pack(anchor="w", padx=10, pady=(5, 10))
+        self.tooltips.append(ToolTip(self.cb_combine_processes, "Если включено, инструменты «Сортировка базы», «Поиск омографов» и «Сборка словаря» заменяются на единый инструмент «Комбо x3», который выполняет их последовательно."))
+
         # Выбор темы
+
         theme_settings_row = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
         theme_settings_row.pack(anchor="w", pady=10)
         
         ctk.CTkLabel(theme_settings_row, text="Тема:", font=self.bold_font).pack(side="left", padx=(0, 20))
         
-        self.theme_map = {"Тёмная": "Dark", "Светлая": "Light", "Аквамарин": "Aquamarine"}
-        self.reverse_theme_map = {"Dark": "Тёмная", "Light": "Светлая", "Aquamarine": "Аквамарин"}
+        self.theme_map = {"Тёмная": "Dark", "Светлая": "Light", "Аквамарин": "Aquamarine", "Чертополох": "Thistle"}
+        self.reverse_theme_map = {"Dark": "Тёмная", "Light": "Светлая", "Aquamarine": "Аквамарин", "Thistle": "Чертополох"}
         
         current_theme_ru = self.reverse_theme_map.get(SETTINGS.get("theme", "Dark"), "Тёмная")
         
         self.theme_optionmenu = ctk.CTkOptionMenu(
             theme_settings_row,
-            values=["Тёмная", "Светлая", "Аквамарин"],
+            values=["Тёмная", "Светлая", "Аквамарин", "Чертополох"],
             font=self.bold_font,
             dropdown_font=self.bold_font,
             command=self.change_theme
@@ -592,14 +629,23 @@ class App(ctk.CTk):
         self.font_slider.pack(side="left", padx=20)
         
         def on_slider_scroll(event):
-            step = 1 if event.delta > 0 else -1
+            if event.num == 4:
+                step = 1
+            elif event.num == 5:
+                step = -1
+            else:
+                step = 1 if event.delta > 0 else -1
+            
             current = self.font_slider_var.get()
             new_val = current + step
             if 10 <= new_val <= 36:
                 self.font_slider_var.set(new_val)
                 self.update_console_font_size(new_val)
+            return "break"
                 
         self.font_slider.bind("<MouseWheel>", on_slider_scroll)
+        self.font_slider.bind("<Button-4>", on_slider_scroll)
+        self.font_slider.bind("<Button-5>", on_slider_scroll)
         self.font_slider.bind("<Enter>", lambda e: self.font_slider.configure(cursor="hand2"))
         self.font_slider.bind("<Leave>", lambda e: self.font_slider.configure(cursor=""))
 
@@ -638,25 +684,34 @@ class App(ctk.CTk):
         self.font_style_dropdown.pack(side="left", padx=20)
 
         # --- Обновление программы ---
+        self.update_found = False
+        self.update_downloaded = False
+        self.new_version = None
+
         update_frame = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
-        update_frame.pack(anchor="w", pady=20)
+        update_frame.pack(anchor="w", pady=(40, 20))
         
-        self.btn_check_update = ctk.CTkButton(update_frame, text="Проверить обновление", font=self.bold_font, height=40, command=self.check_update)
-        self.btn_check_update.pack(side="left", padx=(0, 10))
-        
-        self.btn_download_update = ctk.CTkButton(update_frame, text="Скачать", font=self.bold_font, height=40, state="disabled", command=self.download_update)
-        self.btn_download_update.pack(side="left", padx=(0, 10))
+        self.btn_download_update = ctk.CTkButton(
+            update_frame, 
+            text="Проверка обновлений...", 
+            font=self.bold_font, 
+            height=50, 
+            width=720,
+            state="disabled", 
+            command=self.download_update
+        )
+        self.btn_download_update.pack(side="left")
 
-        self.btn_sync_dicts = ctk.CTkButton(update_frame, text="Синхронизировать словари", font=self.bold_font, height=40, command=self.sync_dictionaries)
-        self.btn_sync_dicts.pack(side="left")
-
-        self.lbl_update_status = ctk.CTkLabel(self.settings_frame, text="", font=self.bold_font, text_color="gray")
-
-        self.lbl_update_status.pack(anchor="w", pady=(0, 10))
+        # Привязки для смены текста при наведении
+        self.btn_download_update.bind("<Enter>", self.on_update_btn_hover)
+        self.btn_download_update.bind("<Leave>", self.on_update_btn_leave)
 
         # Перенаправление stdout
         sys.stdout = StdoutRedirector(self)
         self.original_input = builtins.input
+
+        # Запуск проверки обновления при старте
+        self.check_update()
 
         # Состояние ожидания
         self.is_waiting_for_input = False
@@ -678,6 +733,8 @@ class App(ctk.CTk):
 
     def get_theme_colors(self):
         theme = SETTINGS.get("theme", "Dark")
+        is_dark = ctk.get_appearance_mode() == "Dark" or theme in ["Aquamarine", "Thistle"]
+        
         if theme == "Aquamarine":
             return {
                 "primary": "#48D1CC",
@@ -689,11 +746,30 @@ class App(ctk.CTk):
                 "button_hover": "#008B8B",
                 "checkmark": "black",
                 "progress_color": "#48D1CC",
-                "disabled_text": "gray30"
+                "disabled_text": "gray30",
+                "update_btn_disabled_fg": "#555555", # Тёмно-серый
+                "update_btn_disabled_text": "black",
+                "text_highlight": "#48D1CC",
+                "bg_highlight": "#48D1CC"
+            }
+        elif theme == "Thistle":
+            return {
+                "primary": "#D8BFD8",
+                "hover": "#BAA1BA",
+                "text": "black",
+                "sidebar_active": "#D8BFD8",
+                "sidebar_active_text": "black",
+                "button_color": "#CDB7CD",
+                "button_hover": "#B197B1",
+                "checkmark": "black",
+                "progress_color": "#D8BFD8",
+                "disabled_text": "gray30",
+                "update_btn_disabled_fg": "#555555",
+                "update_btn_disabled_text": "black",
+                "text_highlight": "#D8BFD8",
+                "bg_highlight": "#D8BFD8"
             }
         else:
-            # Стандартный синий цвет CustomTkinter для тёмной/светлой тем
-            # Для тёмной темы ctk использует #1f538d
             return {
                 "primary": "#1f538d",
                 "hover": "#14375d",
@@ -704,7 +780,11 @@ class App(ctk.CTk):
                 "button_hover": "#0e2642",
                 "checkmark": "white",
                 "progress_color": "#1f538d",
-                "disabled_text": "gray60"
+                "disabled_text": "gray60",
+                "update_btn_disabled_fg": "#555555" if is_dark else "#cccccc", # Тёмно- или светло-серый
+                "update_btn_disabled_text": "black",
+                "text_highlight": "#3B8ED0" if is_dark else "#1f538d",
+                "bg_highlight": "#1f538d"
             }
 
     def apply_theme_to_all(self):
@@ -713,11 +793,28 @@ class App(ctk.CTk):
         # Обновляем основные кнопки
         self.btn_start.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
         self.btn_select_file.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"], text_color_disabled=colors["disabled_text"])
-        self.btn_check_update.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
-        self.btn_sync_dicts.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"])
         
-        # Обновляем кнопку Скачать всегда, чтобы цвет применялся даже если она отключена
-        self.btn_download_update.configure(fg_color=colors["primary"], hover_color=colors["hover"], text_color=colors["text"], text_color_disabled=colors["disabled_text"])
+        # Обновляем кнопку обновления
+        if self.update_downloaded:
+            self.btn_download_update.configure(
+                state="disabled",
+                fg_color=colors["update_btn_disabled_fg"],
+                text_color_disabled=colors["update_btn_disabled_text"]
+            )
+        elif self.update_found:
+            self.btn_download_update.configure(
+                state="normal",
+                fg_color=colors["primary"],
+                hover_color=colors["hover"],
+                text_color=colors["text"]
+            )
+        else:
+            # Обновление не требуется или еще проверяется
+            self.btn_download_update.configure(
+                state="disabled",
+                fg_color=colors["update_btn_disabled_fg"],
+                text_color_disabled=colors["update_btn_disabled_text"]
+            )
         
         # Обновляем выпадающие списки (OptionMenus)
         if hasattr(self, "theme_optionmenu"):
@@ -740,9 +837,15 @@ class App(ctk.CTk):
         if hasattr(self, "progress_bar"):
             self.progress_bar.configure(progress_color=colors["progress_color"])
 
-        # Чекбоксы типографа
+        # Чекбоксы
         for cb in self.typo_checkboxes:
             cb.configure(fg_color=colors["primary"], hover_color=colors["hover"], checkmark_color=colors["checkmark"])
+            
+        if hasattr(self, "cb_sync_on_extraction"):
+            self.cb_sync_on_extraction.configure(fg_color=colors["primary"], hover_color=colors["hover"], checkmark_color=colors["checkmark"])
+        
+        if hasattr(self, "cb_combine_processes"):
+            self.cb_combine_processes.configure(fg_color=colors["primary"], hover_color=colors["hover"], checkmark_color=colors["checkmark"])
 
         # Обновляем иконки стрелок
         self.update_arrow_icons()
@@ -755,10 +858,10 @@ class App(ctk.CTk):
 
     def update_arrow_icons(self):
         theme = SETTINGS.get("theme", "Dark")
-        if theme == "Aquamarine":
-            # В аквамариновой теме используем один цвет для обоих режимов (т.к. она всегда Dark)
-            color_light = "#48D1CC"
-            color_dark = "#48D1CC"
+        if theme in ["Aquamarine", "Thistle"]:
+            # В аквамариновой и чертополоховой темах используем один цвет для обоих режимов (т.к. они всегда Dark)
+            color_light = "#48D1CC" if theme == "Aquamarine" else "#D8BFD8"
+            color_dark = color_light
         else:
             color_light = "#1F6AA5"
             color_dark = "#3B8ED0"
@@ -779,6 +882,37 @@ class App(ctk.CTk):
             os.startfile(dict_path)
         except Exception as e:
             self.write_log(f"Не удалось открыть папку: {e}")
+
+    def update_sidebar_visibility(self):
+        combine = SETTINGS.get("combine_processes", False)
+        if combine:
+            if "sorting" in self.sidebar_btns:
+                self.sidebar_btns["sorting"].grid_remove()
+            if "twin" in self.sidebar_btns:
+                self.sidebar_btns["twin"].grid_remove()
+            if "yellow_dic" in self.sidebar_btns:
+                self.sidebar_btns["yellow_dic"].grid_remove()
+            if "combo" in self.sidebar_btns:
+                # 5 + 1 is typical index, but let's just grid it where sorting used to be if needed,
+                # actually it is already grid since __init__ adds all buttons.
+                # Just call grid() to restore it.
+                self.sidebar_btns["combo"].grid()
+        else:
+            if "sorting" in self.sidebar_btns:
+                self.sidebar_btns["sorting"].grid()
+            if "twin" in self.sidebar_btns:
+                self.sidebar_btns["twin"].grid()
+            if "yellow_dic" in self.sidebar_btns:
+                self.sidebar_btns["yellow_dic"].grid()
+            if "combo" in self.sidebar_btns:
+                self.sidebar_btns["combo"].grid_remove()
+        
+        # Если выбран инструмент, который теперь скрыт, переключаемся на guide или combo
+        current = getattr(self, "current_tool", None)
+        if combine and current in ["sorting", "twin", "yellow_dic"]:
+            self.select_tool("combo")
+        elif not combine and current == "combo":
+            self.select_tool("sorting")
 
     def reset_sidebar_colors(self):
         for btn in self.sidebar_btns.values():
@@ -842,7 +976,9 @@ class App(ctk.CTk):
                 self.file_path_var.set("Выбор файла не требуется")
 
         # Вывод описания только если лог пустой (чтобы сохранять старые выводы)
-        if self.active_log_textbox.get("1.0", "end-1c").strip() == "":
+        # Флаг _desc_printed предотвращает дублирование при быстрой инициализации
+        if not getattr(self.active_log_textbox, "_desc_printed", False) and self.active_log_textbox.get("1.0", "end-1c").strip() == "":
+            self.active_log_textbox._desc_printed = True
             if tool_id != "guide":
                 print(f"\x1b[36mВыбран инструмент:\x1b[0m {config['name']}\n")
             print(f"{config['desc']}\n")
@@ -866,7 +1002,7 @@ class App(ctk.CTk):
             self.current_tab = "settings"
     def change_theme(self, choice_ru):
         theme_en = self.theme_map[choice_ru]
-        if theme_en == "Aquamarine":
+        if theme_en in ["Aquamarine", "Thistle"]:
             ctk.set_appearance_mode("Dark")
         else:
             ctk.set_appearance_mode(theme_en)
@@ -885,6 +1021,12 @@ class App(ctk.CTk):
         for key, var in self.typo_vars.items():
             SETTINGS[key] = var.get()
         save_settings(SETTINGS)
+
+    def save_general_settings(self):
+        SETTINGS["sync_on_extraction"] = self.var_sync_on_extraction.get()
+        SETTINGS["combine_processes"] = self.var_combine_processes.get()
+        save_settings(SETTINGS)
+        self.update_sidebar_visibility()
 
     def dec_alpha(self):
         val = SETTINGS.get("highlight_alpha", 100)
@@ -941,21 +1083,24 @@ class App(ctk.CTk):
         alpha = SETTINGS.get("highlight_alpha", 100)
         # Смешиваем с чисто-белым цветом, чтобы при прозрачности получались чистые пастельные тона (без "грязи")
         bg_light = SETTINGS.get("light_theme_bg_mix", "#FFFFFF")
+        
+        colors = self.get_theme_colors()
+        
         for tb in self.log_textboxes.values():
             if theme_en == "Light":
-                # Здесь можно напрямую задать цвета светлой темы, например, c33 = "#FFFFE0" (Светло-жёлтый)
-                c33 = SETTINGS.get("light_color_yellow", self.mix_colors("#FFD700", bg_light, alpha))
-                c36 = SETTINGS.get("light_color_blue", self.mix_colors("#00FFFF", bg_light, alpha))
+                # В светлой теме цвет фона уведомлений берем из палитры темы
+                c_highlight = self.mix_colors(colors.get("bg_highlight", colors["primary"]), bg_light, alpha)
                 c32 = SETTINGS.get("light_color_green", self.mix_colors("#32CD32", bg_light, alpha))
                 c31 = SETTINGS.get("light_color_orange", self.mix_colors("#FF4500", bg_light, alpha))
 
-                tb.tag_config("color_33", foreground="black", background=c33)
-                tb.tag_config("color_36", foreground="black", background=c36)
+                tb.tag_config("color_33", foreground="black", background=c_highlight)
+                tb.tag_config("color_36", foreground="black", background=c_highlight)
                 tb.tag_config("color_32", foreground="black", background=c32)
                 tb.tag_config("color_31", foreground="black", background=c31)
             else:
-                tb.tag_config("color_33", foreground="#FFD700", background="")
-                tb.tag_config("color_36", foreground="#00FFFF", background="")
+                highlight_color = colors.get("text_highlight", colors["primary"])
+                tb.tag_config("color_33", foreground=highlight_color, background="")
+                tb.tag_config("color_36", foreground=highlight_color, background="")
                 tb.tag_config("color_32", foreground="#32CD32", background="")
                 tb.tag_config("color_31", foreground="#FF4500", background="")
 
@@ -980,35 +1125,32 @@ class App(ctk.CTk):
         SETTINGS["console_font_style"] = value
         save_settings(SETTINGS)
 
+    def on_update_btn_hover(self, event):
+        if self.update_found and not self.update_downloaded and self.btn_download_update.cget("state") == "normal":
+            self.btn_download_update.configure(text=f"Скачать версию: {self.new_version}")
+
+    def on_update_btn_leave(self, event):
+        if getattr(self, "is_choosing_update_dir", False):
+            return
+        if self.update_found and not self.update_downloaded and self.btn_download_update.cget("state") == "normal":
+            self.btn_download_update.configure(text=f"Доступна новая версия: {self.new_version}")
+
     def sync_dictionaries(self):
-        self.btn_sync_dicts.configure(state="disabled")
-        
         def progress_cb(msg):
-            color = "green" if "завершена" in msg else "orange"
-            if "Ошибка" in msg: color = "red"
-            self.after(0, lambda m=msg, c=color: self.lbl_update_status.configure(text=m, text_color=c))
+            print(f"[SYNC] {msg}")
             
         def task():
             try:
-                paths.initialize_user_data(verbose=False) # Сначала сливаем с локальными (на всякий случай)
-                success = paths.sync_dictionaries_from_github(progress_callback=progress_cb)
-                if not success:
-                    self.after(0, lambda: self.lbl_update_status.configure(text="Ошибка онлайн-синхронизации.", text_color="red"))
+                paths.initialize_user_data(verbose=False)
+                paths.sync_dictionaries_from_github(progress_callback=progress_cb)
             except Exception as e:
-                self.after(0, lambda: self.lbl_update_status.configure(text=f"Ошибка: {e}", text_color="red"))
-            finally:
-                self.after(0, lambda: self.btn_sync_dicts.configure(state="normal"))
+                print(f"Ошибка синхронизации: {e}")
                 
         threading.Thread(target=task, daemon=True).start()
 
     def check_update(self):
         def task():
-            self.after(0, lambda: self.btn_check_update.configure(state="disabled"))
-            self.after(0, lambda: self.lbl_update_status.configure(text="Проверка...", text_color="gray"))
-            
-            # Используем константу версии
             current_version = APP_VERSION
-
             try:
                 url = "https://raw.githubusercontent.com/zapeko/YoRZ/main/version.txt"
                 with urllib.request.urlopen(url, timeout=5) as response:
@@ -1016,54 +1158,106 @@ class App(ctk.CTk):
                 
                 self.new_version = new_version
                 
-                # Функция для преобразования версии в кортеж чисел
                 def parse_version(v):
                     return tuple(map(int, (v.split("."))))
                 
                 try:
                     is_newer = parse_version(new_version) > parse_version(current_version)
                 except Exception:
-                    # Если версия не парсится, откатываемся на строковое сравнение (с защитой от понижения версии)
                     is_newer = new_version != current_version and new_version > current_version
 
                 if is_newer:
-                    self.after(0, lambda: self.lbl_update_status.configure(text=f"Текущая версия: {current_version}. Новая версия: {new_version}", text_color="green"))
-                    self.after(0, lambda: self.btn_download_update.configure(state="normal"))
+                    self.update_found = True
+                    self.after(0, lambda: self.btn_download_update.configure(
+                        text=f"Доступна новая версия: {new_version}",
+                        state="normal"
+                    ))
                 else:
-                    self.after(0, lambda: self.lbl_update_status.configure(text=f"Текущая версия: {current_version}. Обновление не требуется.", text_color="gray"))
-                    self.after(0, lambda: self.btn_download_update.configure(state="disabled"))
+                    self.update_found = False
+                    self.after(0, lambda: self.btn_download_update.configure(
+                        text="Обновление не требуется",
+                        state="disabled"
+                    ))
+                self.after(0, self.apply_theme_to_all)
             except Exception as e:
-                self.after(0, lambda: self.lbl_update_status.configure(text=f"Ошибка проверки: {e}", text_color="red"))
-            finally:
-                self.after(0, lambda: self.btn_check_update.configure(state="normal"))
+                print(f"Ошибка проверки обновления: {e}")
+                self.update_found = False
+                self.after(0, lambda: self.btn_download_update.configure(
+                    text="Ошибка проверки обновлений",
+                    state="disabled"
+                ))
+                self.after(0, self.apply_theme_to_all)
                 
         threading.Thread(target=task, daemon=True).start()
 
     def download_update(self):
-        # (1) Возможность выбора директории и (2) фиксированное имя YoRZ.exe
+        v_suffix = f"_v{self.new_version}" if self.new_version else ""
+        suggested_name = f"YoRZ{v_suffix}.exe"
+        
+        # Получаем цвета активной темы
+        colors = self.get_theme_colors()
+        hover_color = colors["hover"]
+        text_color = colors["text"]
+        
+        # Фиксируем цвет при наведении (hover) для диалогового окна и на время скачивания
+        self.btn_download_update.configure(fg_color=hover_color)
+        self.is_choosing_update_dir = True
+        
         save_path = filedialog.asksaveasfilename(
-            initialfile="YoRZ.exe",
+            initialfile=suggested_name,
             defaultextension=".exe",
             filetypes=[("Исполняемые файлы", "*.exe"), ("Все файлы", "*.*")],
             title="Выберите место для сохранения новой версии"
         )
+        self.is_choosing_update_dir = False
         
         if not save_path:
+            # Сбрасываем цвет и текст кнопки, если скачивание отменено
+            self.btn_download_update.configure(fg_color=colors["primary"])
+            self.on_update_btn_leave(None)
             return
 
         def task():
-            self.after(0, lambda: self.btn_download_update.configure(state="disabled"))
-            self.after(0, lambda: self.lbl_update_status.configure(text="Скачивание...", text_color="gray"))
+            # Блокируем кнопку, но оставляем цвет наведения и обычный цвет текста
+            self.after(0, lambda: self.btn_download_update.configure(
+                state="disabled", 
+                text="Подключение...",
+                fg_color=hover_color,
+                text_color_disabled=text_color
+            ))
             try:
-                # Магическая ссылка GitHub: всегда качает YoRZ.exe из последнего (latest) релиза
                 url = "https://github.com/zapeko/YoRZ/releases/latest/download/YoRZ.exe"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    total_size = int(response.info().get('Content-Length', 0))
+                    downloaded = 0
+                    block_size = 8192
+                    
+                    with open(save_path, 'wb') as out_file:
+                        while True:
+                            buffer = response.read(block_size)
+                            if not buffer:
+                                break
+                            downloaded += len(buffer)
+                            out_file.write(buffer)
+                            if total_size > 0:
+                                percent = int(downloaded * 100 / total_size)
+                                self.after(0, lambda p=percent: self.btn_download_update.configure(text=f"Скачивание: {p}%"))
                 
-                urllib.request.urlretrieve(url, save_path)
+                self.update_downloaded = True
                 filename = os.path.basename(save_path)
-                self.after(0, lambda: self.lbl_update_status.configure(text=f"Сохранено: {filename}", text_color="green"))
+                self.after(0, lambda: self.btn_download_update.configure(
+                    text=f"Установите обновление, запустив {filename}",
+                    state="disabled"
+                ))
+                self.after(0, self.apply_theme_to_all)
             except Exception as e:
-                self.after(0, lambda: self.lbl_update_status.configure(text=f"Ошибка скачивания: {e}", text_color="red"))
-                self.after(0, lambda: self.btn_download_update.configure(state="normal"))
+                print(f"Ошибка скачивания: {e}")
+                self.after(0, lambda e=e: self.btn_download_update.configure(
+                    text=f"Ошибка скачивания: {e}",
+                    state="normal",
+                    fg_color=colors["primary"]
+                ))
 
         threading.Thread(target=task, daemon=True).start()
     def copy_selected_text(self, event=None, widget=None):
@@ -1115,45 +1309,30 @@ class App(ctk.CTk):
         self.bind("<KP_Enter>", lambda e: self.submit_choice(''))
 
     def select_file(self):
-        if self.current_tool == "sorting":
-            initial_dir = os.path.join(user_dir, "dictionaries")
-            filetypes = (
-                ("Базы словарей", "*.txt"),
-            )
-            filepath = filedialog.askopenfilename(title="Выберите yellow_base.txt или blacklist.txt", initialdir=initial_dir, filetypes=filetypes)
-            if filepath:
-                filename = os.path.basename(filepath).lower()
-                if filename not in ["yellow_base.txt", "blacklist.txt"]:
-                    print("\x1b[31m>> Ошибка: Для сортировки можно выбрать только yellow_base.txt или blacklist.txt!\x1b[0m")
-                    return
-                self.file_path_var.set(filepath)
-                self.tool_paths[self.current_tool] = filepath
-                print(f"\x1b[32m>> Выбран файл для сортировки:\x1b[0m {filepath}")
-        else:
-            filetypes = (
-                ("Все поддерживаемые форматы", "*.txt;*.fb2;*.epub;*.md"),
-                ("Текстовые файлы", "*.txt"),
-                ("FB2 книги", "*.fb2"),
-                ("EPUB архивы", "*.epub"),
-                ("Markdown файлы", "*.md")
-            )
-            filepath = filedialog.askopenfilename(title="Выберите файл для обработки", filetypes=filetypes)
-            if filepath:
-                self.file_path_var.set(filepath)
-                self.tool_paths[self.current_tool] = filepath
+        filetypes = (
+            ("Все поддерживаемые форматы", "*.txt;*.fb2;*.epub;*.md"),
+            ("Текстовые файлы", "*.txt"),
+            ("FB2 книги", "*.fb2"),
+            ("EPUB архивы", "*.epub"),
+            ("Markdown файлы", "*.md")
+        )
+        filepath = filedialog.askopenfilename(title="Выберите файл для обработки", filetypes=filetypes)
+        if filepath:
+            self.file_path_var.set(filepath)
+            self.tool_paths[self.current_tool] = filepath
+            
+            # Если выбран файл в Типографе, автоматически прописываем пути с _fixed в другие инструменты
+            if self.current_tool == "typographer":
+                base_dir = os.path.dirname(os.path.abspath(filepath))
+                base_name, ext = os.path.splitext(os.path.basename(filepath))
+                fixed_path = os.path.join(base_dir, f"{base_name}_fixed{ext}")
                 
-                # Если выбран файл в Типографе, автоматически прописываем пути с _fixed в другие инструменты
-                if self.current_tool == "typographer":
-                    base_dir = os.path.dirname(os.path.abspath(filepath))
-                    base_name, ext = os.path.splitext(os.path.basename(filepath))
-                    fixed_path = os.path.join(base_dir, f"{base_name}_fixed{ext}")
-                    
-                    self.tool_paths["extraction"] = fixed_path
-                    self.tool_paths["yorz"] = fixed_path
-                    print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
-                    print(f"\x1b[36m>> Автоматически установлены пути для извлечения и ёфикации:\x1b[0m {fixed_path}")
-                else:
-                    print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
+                self.tool_paths["extraction"] = fixed_path
+                self.tool_paths["yorz"] = fixed_path
+                print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
+                print(f"\x1b[36m>> Автоматически установлены пути для извлечения и ёфикации:\x1b[0m {fixed_path}")
+            else:
+                print(f"\x1b[32m>> Выбран файл:\x1b[0m {filepath}")
 
     def start_processing(self):
         config = TOOLS_CONFIG[self.current_tool]
@@ -1191,6 +1370,18 @@ class App(ctk.CTk):
         builtins.gui_custom_input = self.custom_input
         builtins.gui_update_progress = self.update_progress
         try:
+            # Если это извлечение слов и включена настройка - запускаем синхронизацию
+            if tool_id == "extraction" and SETTINGS.get("sync_on_extraction", True):
+                print("\x1b[33m>> Фоновая синхронизация словарей перед извлечением...\x1b[0m")
+                def sync_progress_cb(msg):
+                    print(f"[SYNC] {msg}")
+                try:
+                    paths.initialize_user_data(verbose=False)
+                    paths.sync_dictionaries_from_github(progress_callback=sync_progress_cb)
+                except Exception as sync_e:
+                    print(f"\x1b[31m[SYNC ERROR] Не удалось выполнить фоновую синхронизацию: {sync_e}\x1b[0m")
+                print("\x1b[32m>> Синхронизация завершена. Начинаю извлечение слов...\x1b[0m\n")
+
             # Если файл не выбран, передаём пустую строку, чтобы модули использовали свои дефолты
             f = filepath if filepath not in ("Файл не выбран", "Выбор файла не требуется") else ""
 
@@ -1219,6 +1410,13 @@ class App(ctk.CTk):
             elif tool_id == "twin":
                 twin.run()
             elif tool_id == "yellow_dic":
+                yellow_dic_forming.run()
+            elif tool_id == "combo":
+                print(f"\x1b[36m>> Шаг 1/3: Сортировка базы...\x1b[0m")
+                sorting.run(input_filename="dictionaries/yellow_base.txt")
+                print(f"\n\x1b[36m>> Шаг 2/3: Поиск омографов...\x1b[0m")
+                twin.run()
+                print(f"\n\x1b[36m>> Шаг 3/3: Сборка словаря...\x1b[0m")
                 yellow_dic_forming.run()
 
             print(f"\n\x1b[32m>> ГОТОВО! Работа успешно завершена.\x1b[0m")
